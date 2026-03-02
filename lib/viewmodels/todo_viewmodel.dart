@@ -10,56 +10,123 @@ class TodoViewModel extends ChangeNotifier {
   bool _loading = false;
   bool get loading => _loading;
 
-  Future<void> loadTodos() async {
+  String? _currentOwnerEmail;
+  String? get currentOwnerEmail => _currentOwnerEmail;
+
+  /// Load todos belonging only to [ownerEmail]
+  Future<void> loadTodosForUser(String ownerEmail) async {
     _setLoading(true);
-    await DatabaseService.instance.init();
+    try {
+      await DatabaseService.instance.init();
 
-    _todos.clear();
-    final box = DatabaseService.instance.todosBox;
+      _currentOwnerEmail = ownerEmail;
+      _todos.clear();
 
-    for (final key in box.keys) {
-      final raw = box.get(key);
-      if (raw is Map) {
-        _todos.add(TodoModel.fromMap(Map<String, dynamic>.from(raw)));
+      final box = DatabaseService.instance.todosBox;
+
+      for (final value in box.values) {
+        if (value is! Map) continue;
+
+        final raw = Map<String, dynamic>.from(value as Map);
+
+        // Skip records that don't belong to this user
+        final email = raw['ownerEmail'] as String? ?? '';
+        if (email != ownerEmail) continue;
+
+        try {
+          final todo = TodoModel.fromMap(raw);
+          _todos.add(todo);
+        } catch (_) {
+          // ignore malformed record instead of crashing
+        }
       }
-    }
 
-    _todos.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    _setLoading(false);
+      // Newest first
+      _todos.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    } finally {
+      _setLoading(false);
+    }
   }
 
+  /// Create a todo for [ownerEmail]
   Future<void> addTodo({
+    required String title,
+    required String sensitiveNotePlain,
+    required String ownerEmail,
+  }) async {
+    _setLoading(true);
+    try {
+      await DatabaseService.instance.init();
+      final box = DatabaseService.instance.todosBox;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final id = now.toString();
+
+      final encryptedNote =
+          await EncryptionService.instance.encryptNote(sensitiveNotePlain);
+
+      final todo = TodoModel(
+        id: id,
+        title: title,
+        encryptedNote: encryptedNote,
+        isDone: false,
+        createdAt: now,
+        ownerEmail: ownerEmail,
+      );
+
+      await box.put(id, todo.toMap());
+      _todos.insert(0, todo);
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> toggleDone(TodoModel todo) async {
+    await DatabaseService.instance.init();
+    final box = DatabaseService.instance.todosBox;
+
+    final updated = todo.copyWith(isDone: !todo.isDone);
+    await box.put(updated.id, updated.toMap());
+
+    final idx = _todos.indexWhere((t) => t.id == updated.id);
+    if (idx != -1) {
+      _todos[idx] = updated;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateTodo({
+    required String id,
     required String title,
     required String sensitiveNotePlain,
   }) async {
     await DatabaseService.instance.init();
+    final box = DatabaseService.instance.todosBox;
 
-    final encryptedNote = await EncryptionService.instance.encryptNote(sensitiveNotePlain);
+    final existing = box.get(id);
+    if (existing is! Map) return;
 
-    final id = DateTime.now().microsecondsSinceEpoch.toString();
-    final todo = TodoModel(
-      id: id,
+    var todo = TodoModel.fromMap(Map<String, dynamic>.from(existing));
+
+    final encryptedNote =
+        await EncryptionService.instance.encryptNote(sensitiveNotePlain);
+
+    todo = todo.copyWith(
       title: title,
       encryptedNote: encryptedNote,
-      isDone: false,
-      createdAt: DateTime.now().millisecondsSinceEpoch,
     );
 
-    await DatabaseService.instance.todosBox.put(id, todo.toMap());
-    _todos.insert(0, todo);
-    notifyListeners();
-  }
+    await box.put(id, todo.toMap());
 
-  Future<void> toggleDone(TodoModel todo) async {
-    final updated = todo.copyWith(isDone: !todo.isDone);
-    await DatabaseService.instance.todosBox.put(todo.id, updated.toMap());
-
-    final idx = _todos.indexWhere((t) => t.id == todo.id);
-    if (idx != -1) _todos[idx] = updated;
-    notifyListeners();
+    final idx = _todos.indexWhere((t) => t.id == id);
+    if (idx != -1) {
+      _todos[idx] = todo;
+      notifyListeners();
+    }
   }
 
   Future<void> deleteTodo(String id) async {
+    await DatabaseService.instance.init();
     await DatabaseService.instance.todosBox.delete(id);
     _todos.removeWhere((t) => t.id == id);
     notifyListeners();

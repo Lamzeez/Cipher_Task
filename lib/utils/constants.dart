@@ -10,6 +10,7 @@ class AppConstants {
   static const String kAesKey = 'aes_256_key_b64';
   static const String kPasswordHash = 'user_password_hash';
   static const String kPasswordEverSet = 'password_ever_set'; // "true"/"false"
+  static String passwordKeyForEmail(String email) => 'pwd_hash_${email.toLowerCase()}';
 
   // Session
   static const int sessionTimeoutSeconds = 120; // 2 minutes

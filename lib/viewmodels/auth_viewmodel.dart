@@ -134,6 +134,7 @@ class AuthViewModel extends ChangeNotifier {
 
   Future<void> logout() async {
     _isAuthenticated = false;
+    _user = null;        // optional but cleaner for security
     notifyListeners();
   }
 

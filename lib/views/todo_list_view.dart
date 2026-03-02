@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/todo_viewmodel.dart';
 import '../models/todo_model.dart';
+import 'todo_detail_view.dart';
 
 class TodoListView extends StatefulWidget {
   const TodoListView({super.key});
@@ -15,11 +17,20 @@ class _TodoListViewState extends State<TodoListView> {
   final _title = TextEditingController();
   final _note = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    Future.microtask(() => context.read<TodoViewModel>().loadTodos());
-  }
+    @override
+    void initState() {
+      super.initState();
+
+      // After the first frame, load todos for the current user
+      Future.microtask(() {
+        final auth = context.read<AuthViewModel>();
+        final email = auth.user?.email;
+
+        if (email != null && email.isNotEmpty) {
+          context.read<TodoViewModel>().loadTodosForUser(email);
+        }
+      });
+    }
 
   @override
   void dispose() {
@@ -64,15 +75,27 @@ class _TodoListViewState extends State<TodoListView> {
                     labelText: 'Sensitive Note (AES-256 encrypted)',
                     border: OutlineInputBorder(),
                   ),
+                  minLines: 1,
+                  maxLines: 3,
                 ),
                 const SizedBox(height: 10),
                 ElevatedButton.icon(
                   onPressed: () async {
                     if (_title.text.trim().isEmpty) return;
+                    if (auth.user == null) {
+                      // Safety: should not happen because you only reach here when logged in
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('No authenticated user.')),
+                      );
+                      return;
+                    }
+
                     await todoVm.addTodo(
                       title: _title.text.trim(),
                       sensitiveNotePlain: _note.text.trim(),
+                      ownerEmail: auth.user!.email,
                     );
+
                     _title.clear();
                     _note.clear();
                   },
@@ -101,6 +124,26 @@ class _TodoTile extends StatelessWidget {
   final TodoModel todo;
   const _TodoTile({required this.todo});
 
+  Future<bool?> _confirmDelete(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete this task?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.read<TodoViewModel>();
@@ -108,7 +151,24 @@ class _TodoTile extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: ListTile(
-        title: Text(todo.title),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => TodoDetailView(todo: todo)),
+          );
+        },
+        leading: Checkbox(
+          value: todo.isDone,
+          onChanged: (_) => vm.toggleDone(todo),
+        ),
+        title: Text(
+          todo.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            decoration: todo.isDone ? TextDecoration.lineThrough : TextDecoration.none,
+          ),
+        ),
         subtitle: FutureBuilder<String>(
           future: vm.decryptNote(todo.encryptedNote),
           builder: (context, snap) => Text(
@@ -117,13 +177,13 @@ class _TodoTile extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        leading: Checkbox(
-          value: todo.isDone,
-          onChanged: (_) => vm.toggleDone(todo),
-        ),
         trailing: IconButton(
           icon: const Icon(Icons.delete),
-          onPressed: () => vm.deleteTodo(todo.id),
+          onPressed: () async {
+            final confirmed = await _confirmDelete(context);
+            if (confirmed != true) return;
+            await vm.deleteTodo(todo.id);
+          },
         ),
       ),
     );

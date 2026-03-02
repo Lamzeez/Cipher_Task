@@ -28,16 +28,18 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
   void initState() {
     super.initState();
 
-    // Start session timer; on timeout -> force lock
+    // Start the inactivity session timer
     SessionService.instance.start(onTimeout: () {
       final nav = _navKey.currentState;
-      if (nav == null) return;
+      final ctx = _navKey.currentContext;
+      if (nav == null || ctx == null) return;
 
-      // Pop to root and show login
-      nav.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginView()),
-        (route) => false,
-      );
+      // 1) Mark user as logged out
+      ctx.read<AuthViewModel>().logout();
+
+      // 2) Go back to the first route; that route's Consumer<AuthViewModel>
+      //    will now rebuild as LoginView because isAuthenticated == false.
+      nav.popUntil((route) => route.isFirst);
     });
   }
 
@@ -54,22 +56,24 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         ChangeNotifierProvider(create: (_) => AuthViewModel()..loadUser()),
         ChangeNotifierProvider(create: (_) => TodoViewModel()),
       ],
+      // Every tap / scroll resets idle timer
       child: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (_) => SessionService.instance.userActivityPing(),
-        onPointerMove: (_) => SessionService.instance.userActivityPing(),
-        onPointerUp: (_) => SessionService.instance.userActivityPing(),
+        onPointerDown: (_) {
+          SessionService.instance.userActivityPing();
+        },
         child: MaterialApp(
           navigatorKey: _navKey,
-          debugShowCheckedModeBanner: false,
           title: 'CipherTask',
           theme: ThemeData(
             useMaterial3: true,
             colorSchemeSeed: Colors.blueGrey,
           ),
+          // Single source of truth for "are we on Login or Home?"
           home: Consumer<AuthViewModel>(
             builder: (_, auth, __) {
-              return auth.isAuthenticated ? const TodoListView() : const LoginView();
+              return auth.isAuthenticated
+                  ? const TodoListView()
+                  : const LoginView();
             },
           ),
         ),
