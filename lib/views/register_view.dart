@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../viewmodels/auth_viewmodel.dart';
 import 'widgets/secure_text_field.dart';
+import 'otp_verify_view.dart';
 
 class RegisterView extends StatefulWidget {
   const RegisterView({super.key});
@@ -37,33 +39,76 @@ class _RegisterViewState extends State<RegisterView> {
           children: [
             SecureTextField(controller: _name, label: 'Full Name'),
             const SizedBox(height: 12),
-            SecureTextField(controller: _email, label: 'Email', keyboardType: TextInputType.emailAddress),
+            SecureTextField(
+              controller: _email,
+              label: 'Email',
+              keyboardType: TextInputType.emailAddress,
+            ),
             const SizedBox(height: 12),
-            SecureTextField(controller: _pass, label: 'Password', obscure: true),
+            SecureTextField(
+              controller: _pass,
+              label: 'Password',
+              obscure: true,
+            ),
             const SizedBox(height: 12),
-            SecureTextField(controller: _confirm, label: 'Confirm Password', obscure: true),
+            SecureTextField(
+              controller: _confirm,
+              label: 'Confirm Password',
+              obscure: true,
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: auth.loading
                   ? null
                   : () async {
+                      final fullName = _name.text.trim();
+                      final email = _email.text.trim();
                       final password = _pass.text.trim();
-                      if (password != _confirm.text.trim()) {
+                      final confirm = _confirm.text.trim();
+
+                      if (fullName.isEmpty || email.isEmpty) {
+                        _show('Please enter your full name and email.');
+                        return;
+                      }
+
+                      if (password != confirm) {
                         _show('Passwords do not match');
                         return;
                       }
+
                       if (!auth.passwordMeetsPolicy(password)) {
-                        _show('Password must be 8+ chars, 1 uppercase, 1 special char.');
+                        _show(
+                          'Password must be 8+ chars, 1 uppercase, 1 special char.',
+                        );
                         return;
                       }
-                      await auth.register(
-                        fullName: _name.text.trim(),
-                        email: _email.text.trim(),
+
+                      final ok = await auth.startRegistration(
+                        fullName: fullName,
+                        email: email,
                         password: password,
                       );
-                      if (context.mounted) Navigator.pop(context);
+
+                      if (!ok) {
+                        if (context.mounted) {
+                          _show('That email is already registered.');
+                        }
+                        return;
+                      }
+
+                      if (!context.mounted) return;
+
+                      // Go to OTP verification screen
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => OtpVerifyView(email: email),
+                        ),
+                      );
                     },
-              child: auth.loading ? const CircularProgressIndicator() : const Text('Create Account'),
+              child: auth.loading
+                  ? const CircularProgressIndicator()
+                  : const Text('Send OTP'),
             ),
           ],
         ),
@@ -72,6 +117,7 @@ class _RegisterViewState extends State<RegisterView> {
   }
 
   void _show(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 }

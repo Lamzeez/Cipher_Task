@@ -1,3 +1,6 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:screen_protector/screen_protector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,9 +11,19 @@ import 'viewmodels/todo_viewmodel.dart';
 import 'views/login_view.dart';
 import 'views/todo_list_view.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load .env first
+  await dotenv.load(fileName: ".env");
+
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+  );
+
   await DatabaseService.instance.init();
+
   runApp(const CipherTaskApp());
 }
 
@@ -27,6 +40,8 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
   @override
   void initState() {
     super.initState();
+
+    _initScreenProtection();   
 
     // Start the inactivity session timer
     SessionService.instance.start(onTimeout: () {
@@ -79,5 +94,13 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         ),
       ),
     );
+  }
+  Future<void> _initScreenProtection() async {
+    try {
+      await ScreenProtector.preventScreenshotOn();
+      await ScreenProtector.protectDataLeakageOn();
+    } catch (e) {
+      debugPrint('ScreenProtector error: $e');
+    }
   }
 }
