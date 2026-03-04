@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../utils/constants.dart';
 
 class KeyStorageService {
@@ -12,9 +14,14 @@ class KeyStorageService {
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 
-  Future<void> setString(String key, String value) => _storage.write(key: key, value: value);
+  Future<void> setString(String key, String value) =>
+      _storage.write(key: key, value: value);
+
   Future<String?> getString(String key) => _storage.read(key: key);
+
   Future<void> delete(String key) => _storage.delete(key: key);
+
+  Future<void> deleteAll() => _storage.deleteAll();
 
   /// Generates a secure random key and stores it if not present.
   Future<List<int>> getOrCreateDbKeyBytes() async {
@@ -27,7 +34,7 @@ class KeyStorageService {
     final key = _randomBytes(32);
     await setString(AppConstants.kDbKey, base64Url.encode(key));
     return key;
-    }
+  }
 
   /// AES-256 key (32 bytes) for field encryption of sensitive note
   Future<List<int>> getOrCreateAesKeyBytes() async {

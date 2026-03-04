@@ -5,56 +5,53 @@ import 'package:provider/provider.dart';
 
 import '../viewmodels/auth_viewmodel.dart';
 
-class OtpVerifyView extends StatefulWidget {
-  final String email;
-  const OtpVerifyView({super.key, required this.email});
+class DeleteAccountOtpView extends StatefulWidget {
+  const DeleteAccountOtpView({super.key});
 
   @override
-  State<OtpVerifyView> createState() => _OtpVerifyViewState();
+  State<DeleteAccountOtpView> createState() => _DeleteAccountOtpViewState();
 }
 
-class _OtpVerifyViewState extends State<OtpVerifyView> {
+class _DeleteAccountOtpViewState extends State<DeleteAccountOtpView> {
   final TextEditingController _otp = TextEditingController();
 
   bool _canResend = false;
   int _secondsRemaining = 60;
-  Timer? _resendTimer;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _startResendCountdown(seconds: 60);
+    _startCountdown(60);
   }
 
   @override
   void dispose() {
     _otp.dispose();
-    _resendTimer?.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
-  void _startResendCountdown({int seconds = 60}) {
-    _resendTimer?.cancel();
+  void _startCountdown(int seconds) {
+    _timer?.cancel();
     setState(() {
       _canResend = false;
       _secondsRemaining = seconds;
     });
 
-    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) {
-        timer.cancel();
+        t.cancel();
         return;
       }
       if (_secondsRemaining <= 1) {
-        timer.cancel();
+        t.cancel();
         setState(() {
           _canResend = true;
           _secondsRemaining = 0;
         });
       } else {
-        setState(() {
-          _secondsRemaining--;
-        });
+        setState(() => _secondsRemaining--);
       }
     });
   }
@@ -71,18 +68,19 @@ class _OtpVerifyViewState extends State<OtpVerifyView> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
+    final email = auth.pendingDeleteEmail ?? auth.user?.email ?? '';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify Email')),
+      appBar: AppBar(title: const Text('Confirm Delete')),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
               Text(
-                'Enter the 6-digit code sent to\n${widget.email}',
+                'We sent a 6-digit code to:\n$email\n\n'
+                'Enter it to permanently delete your account.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -101,55 +99,45 @@ class _OtpVerifyViewState extends State<OtpVerifyView> {
                     : () async {
                         final ok = await context
                             .read<AuthViewModel>()
-                            .verifyOtpAndCreateAccount(
-                              email: widget.email.trim(),
+                            .verifyDeleteOtpAndDeleteAccount(
                               otp: _otp.text.trim(),
                             );
 
                         if (!ok && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('Invalid or expired OTP.'),
+                            _miniSnackBar('Invalid/expired OTP or delete failed.'),
                           );
                           return;
                         }
 
                         if (!context.mounted) return;
-
-                        // ✅ ensure we do NOT end up in home automatically
-                        context.read<AuthViewModel>().logout();
-
                         ScaffoldMessenger.of(context).showSnackBar(
-                          _miniSnackBar('Registration complete! Please log in.'),
+                          _miniSnackBar('Account deleted successfully.'),
                         );
 
-                        // Back to login (first route)
+                        // Back to Login/root
                         Navigator.popUntil(context, (route) => route.isFirst);
                       },
                 child: auth.loading
                     ? const CircularProgressIndicator()
-                    : const Text('Verify & Create Account'),
+                    : const Text('Verify & Delete'),
               ),
               const SizedBox(height: 12),
               TextButton(
                 onPressed: (!_canResend || auth.loading)
                     ? null
                     : () async {
-                        final ok = await context
-                            .read<AuthViewModel>()
-                            .resendOtp(email: widget.email.trim());
-
+                        final ok = await context.read<AuthViewModel>().resendDeleteOtp();
                         if (!mounted) return;
 
                         if (ok) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('A new code has been sent to ${widget.email}.'),
+                            _miniSnackBar('New code sent.'),
                           );
-                          _startResendCountdown(seconds: 60);
+                          _startCountdown(60);
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar(
-                              'Unable to resend code. Please wait and try again.',
-                            ),
+                            _miniSnackBar('Please wait before resending.'),
                           );
                         }
                       },

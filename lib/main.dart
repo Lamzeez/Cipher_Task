@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:screen_protector/screen_protector.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'services/database_service.dart';
 import 'services/session_service.dart';
@@ -17,7 +17,6 @@ import 'views/todo_list_view.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment (.env)
   await dotenv.load(fileName: ".env");
 
   await Supabase.initialize(
@@ -41,57 +40,71 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
 
   bool _warningDialogOpen = false;
+  bool _sessionRunning = false;
 
   @override
   void initState() {
     super.initState();
-
     _initScreenProtection();
-
-    // Start the inactivity session timer with warning + timeout
-    SessionService.instance.start(
-      onTimeout: () {
-        final nav = _navKey.currentState;
-        final ctx = _navKey.currentContext;
-        if (nav == null || ctx == null) return;
-
-        // Close the warning dialog if it's still open
-        if (_warningDialogOpen) {
-          Navigator.of(ctx, rootNavigator: true).pop();
-          _warningDialogOpen = false;
-        }
-
-        // Mark user as logged out
-        ctx.read<AuthViewModel>().logout();
-
-        // Go back to the first route; Consumer<AuthViewModel> there
-        // will rebuild as LoginView because isAuthenticated == false.
-        nav.popUntil((route) => route.isFirst);
-
-        // Optional: show a SnackBar if still mounted somewhere
-        // (safe guard: use root context if available)
-        final messenger = ScaffoldMessenger.maybeOf(ctx);
-        if (messenger != null) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Session expired. You have been logged out.'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      },
-      onWarning: () {
-        final ctx = _navKey.currentContext;
-        if (ctx == null) return;
-        _showSessionWarningDialog(ctx);
-      },
-    );
   }
 
   @override
   void dispose() {
     SessionService.instance.stop();
     super.dispose();
+  }
+
+  void _startSessionIfNeeded(BuildContext ctx) {
+    if (_sessionRunning) return;
+
+    _sessionRunning = true;
+
+    SessionService.instance.start(
+      onTimeout: () {
+        final nav = _navKey.currentState;
+        final context = _navKey.currentContext;
+        if (nav == null || context == null) return;
+
+        // Close warning dialog if still open
+        if (_warningDialogOpen) {
+          Navigator.of(context, rootNavigator: true).pop();
+          _warningDialogOpen = false;
+        }
+
+        // Logout
+        context.read<AuthViewModel>().logout();
+
+        // Go back to login
+        nav.popUntil((route) => route.isFirst);
+
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text('Session expired. You have been logged out.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      },
+      onWarning: () {
+        final context = _navKey.currentContext;
+        if (context == null) return;
+        _showSessionWarningDialog(context);
+      },
+    );
+  }
+
+  void _stopSessionIfNeeded() {
+    if (!_sessionRunning) return;
+
+    // Close warning dialog if still open
+    final ctx = _navKey.currentContext;
+    if (ctx != null && _warningDialogOpen) {
+      Navigator.of(ctx, rootNavigator: true).pop();
+      _warningDialogOpen = false;
+    }
+
+    SessionService.instance.stop();
+    _sessionRunning = false;
   }
 
   void _showSessionWarningDialog(BuildContext rootContext) {
@@ -107,7 +120,6 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setState) {
-            // Start countdown once
             countdownTimer ??= Timer.periodic(
               const Duration(seconds: 1),
               (timer) {
@@ -117,14 +129,10 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                 }
                 if (secondsLeft <= 1) {
                   timer.cancel();
-                  setState(() {
-                    secondsLeft = 0;
-                  });
+                  setState(() => secondsLeft = 0);
                   return;
                 }
-                setState(() {
-                  secondsLeft--;
-                });
+                setState(() => secondsLeft--);
               },
             );
 
@@ -132,8 +140,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
               title: const Text('Session expiring soon'),
               content: Text(
                 'You have been inactive for a while.\n\n'
-                'You will be logged out in $secondsLeft seconds unless you '
-                'continue using the app.',
+                'You will be logged out in $secondsLeft seconds unless you continue using the app.',
               ),
               actions: [
                 TextButton(
@@ -150,7 +157,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                     Navigator.of(dialogContext).pop();
                     _warningDialogOpen = false;
 
-                    // Treat this as user activity → reset full session timer
+                    // Reset full session timer
                     SessionService.instance.userActivityPing();
                   },
                   child: const Text('Stay signed in'),
@@ -161,37 +168,9 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         );
       },
     ).then((_) {
-      // Dialog dismissed in any way
       _warningDialogOpen = false;
       countdownTimer?.cancel();
     });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthViewModel()..loadUser()),
-        ChangeNotifierProvider(create: (_) => TodoViewModel()),
-      ],
-      // Any pointer tap/scroll resets idle timer
-      child: Listener(
-        onPointerDown: (_) => SessionService.instance.userActivityPing(),
-        child: MaterialApp(
-          navigatorKey: _navKey,
-          title: AppConstants.appName,
-          debugShowCheckedModeBanner: false,
-          theme: buildCyberpunkTheme(), // 🔥 restore cyberpunk theme here
-          home: Consumer<AuthViewModel>(
-            builder: (_, auth, __) {
-              return auth.isAuthenticated
-                  ? const TodoListView()
-                  : const LoginView();
-            },
-          ),
-        ),
-      ),
-    );
   }
 
   Future<void> _initScreenProtection() async {
@@ -201,5 +180,40 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
     } catch (e) {
       debugPrint('ScreenProtector error: $e');
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthViewModel()..loadUser()),
+        ChangeNotifierProvider(create: (_) => TodoViewModel()),
+      ],
+      child: MaterialApp(
+        navigatorKey: _navKey,
+        title: AppConstants.appName,
+        debugShowCheckedModeBanner: false,
+        theme: buildCyberpunkTheme(),
+        home: Consumer<AuthViewModel>(
+          builder: (ctx, auth, _) {
+            // ✅ Only run session when authenticated
+            if (auth.isAuthenticated) {
+              _startSessionIfNeeded(ctx);
+              // ✅ Only ping session when authenticated
+              return Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (_) =>
+                    SessionService.instance.userActivityPing(),
+                child: const TodoListView(),
+              );
+            } else {
+              // ✅ Stop session on login/register/otp pages
+              _stopSessionIfNeeded();
+              return const LoginView();
+            }
+          },
+        ),
+      ),
+    );
   }
 }

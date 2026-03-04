@@ -1,10 +1,13 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_model.dart';
 import '../services/database_service.dart';
@@ -12,6 +15,7 @@ import '../services/key_storage_service.dart';
 import '../utils/constants.dart';
 
 class AuthViewModel extends ChangeNotifier {
+
   bool _isAuthenticated = false;
   bool get isAuthenticated => _isAuthenticated;
 
@@ -24,17 +28,18 @@ class AuthViewModel extends ChangeNotifier {
   final LocalAuthentication _localAuth = LocalAuthentication();
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // Pending registration (for OTP verification)
+  // Pending registration (OTP verification)
   String? _pendingEmail;
   String? _pendingName;
   String? _pendingPasswordHash;
-  String? _pendingOtp; // 6-digit code
 
   bool get awaitingOtp => _pendingEmail != null;
-  String? get debugLastOtp => _pendingOtp;
 
-  /// Load the last logged-in profile (if any) from encrypted Hive.
-  /// This does NOT automatically authenticate the user.
+  // Pending account deletion (OTP re-auth)
+  String? _pendingDeleteEmail;
+  bool get awaitingDeleteOtp => _pendingDeleteEmail != null;
+  String? get pendingDeleteEmail => _pendingDeleteEmail;
+
   Future<void> loadUser() async {
     await DatabaseService.instance.init();
 
@@ -48,6 +53,9 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ----------------------------
+  // Registration (Supabase OTP)
+  // ----------------------------
   Future<bool> startRegistration({
     required String fullName,
     required String email,
@@ -60,30 +68,18 @@ class AuthViewModel extends ChangeNotifier {
       final normalizedEmail = email.trim().toLowerCase();
       final usersBox = DatabaseService.instance.userBox;
 
-      // Check if email is already registered locally
+      // Already registered locally?
       final existing = usersBox.get(normalizedEmail);
-      if (existing is Map) {
-        return false; // email already exists locally
-      }
+      if (existing is Map) return false;
 
-      // Hash the password locally (we still keep local password auth)
       final hash = _hashPassword(password);
 
-      // 1) Ask Supabase to send an OTP email
-      // This uses the "passwordless email" OTP flow.
-      await _supabase.auth.signInWithOtp(
-        email: normalizedEmail,
-        // If you don't want Supabase to auto-create an auth user, set options:
-        // options: const EmailOtpSignInOptions(shouldCreateUser: true),
-      );
+      // Send OTP via Supabase
+      await _supabase.auth.signInWithOtp(email: normalizedEmail);
 
-      // 2) Remember pending registration data locally.
       _pendingEmail = normalizedEmail;
       _pendingName = fullName.trim();
       _pendingPasswordHash = hash;
-
-      // We don't store the OTP itself; Supabase will verify it.
-      _pendingOtp = null;
 
       return true;
     } catch (e) {
@@ -94,36 +90,25 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Verify the OTP and, if correct, create the account and log the user in.
   Future<bool> verifyOtpAndCreateAccount({
     required String email,
     required String otp,
   }) async {
-    if (_pendingEmail == null ||
-        _pendingPasswordHash == null ||
-        _pendingName == null) {
-      return false; // no pending registration
+    if (_pendingEmail == null || _pendingPasswordHash == null || _pendingName == null) {
+      return false;
     }
 
     final normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail != _pendingEmail) {
-      return false; // mismatch
-    }
+    if (normalizedEmail != _pendingEmail) return false;
 
     _setLoading(true);
     try {
-      // 1) Ask Supabase to verify the OTP
-      // For email OTP, type must be OtpType.email
-      // Docs: supabase.auth.verifyOtp({ email, token, type: 'email' }) :contentReference[oaicite:3]{index=3}
       await _supabase.auth.verifyOTP(
         type: OtpType.email,
         email: normalizedEmail,
         token: otp.trim(),
       );
 
-      // If we get here without throwing an AuthException, the OTP is valid.
-
-      // 2) Create the local encrypted account like before
       await DatabaseService.instance.init();
       final usersBox = DatabaseService.instance.userBox;
 
@@ -132,27 +117,19 @@ class AuthViewModel extends ChangeNotifier {
         displayName: _pendingName!,
       );
 
-      // store this user under its email AND as 'profile' (last logged-in user)
       await usersBox.put(normalizedEmail, profile.toMap());
       await usersBox.put('profile', profile.toMap());
 
-      // store the password hash in secure storage, keyed by email
       final pwdKey = AppConstants.passwordKeyForEmail(normalizedEmail);
-      await KeyStorageService.instance.setString(
-        pwdKey,
-        _pendingPasswordHash!,
-      );
-      await KeyStorageService.instance
-          .setString(AppConstants.kPasswordEverSet, 'true');
+      await KeyStorageService.instance.setString(pwdKey, _pendingPasswordHash!);
+      await KeyStorageService.instance.setString(AppConstants.kPasswordEverSet, 'true');
 
       _user = profile;
       _isAuthenticated = true;
 
-      // clear pending
       _pendingEmail = null;
       _pendingName = null;
       _pendingPasswordHash = null;
-      _pendingOtp = null;
 
       notifyListeners();
       return true;
@@ -167,7 +144,27 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Login with email + password against the hashed password in secure storage.
+  Future<bool> resendOtp({required String email}) async {
+    if (_pendingEmail == null) return false;
+
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail != _pendingEmail) return false;
+
+    _setLoading(true);
+    try {
+      await _supabase.auth.signInWithOtp(email: normalizedEmail);
+      return true;
+    } catch (e) {
+      debugPrint('resendOtp error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // ----------------------------
+  // Local Login (no Supabase session)
+  // ----------------------------
   Future<bool> loginWithPassword(String email, String password) async {
     if (_loading) return false;
 
@@ -184,17 +181,14 @@ class AuthViewModel extends ChangeNotifier {
       final profile = UserModel.fromMap(Map<String, dynamic>.from(data));
 
       final pwdKey = AppConstants.passwordKeyForEmail(normalizedEmail);
-      final stored =
-          await KeyStorageService.instance.getString(pwdKey);
+      final stored = await KeyStorageService.instance.getString(pwdKey);
       if (stored == null) return false;
 
       final ok = stored == _hashPassword(password);
       if (!ok) return false;
 
-      // Password is correct → mark as authenticated and remember as last profile
       await usersBox.put('profile', profile.toMap());
-      await KeyStorageService.instance
-          .setString(AppConstants.kPasswordEverSet, 'true');
+      await KeyStorageService.instance.setString(AppConstants.kPasswordEverSet, 'true');
 
       _user = profile;
       _isAuthenticated = true;
@@ -205,7 +199,20 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Biometric login: unlocks the last logged-in profile ('profile' in userBox).
+  // ----------------------------
+  // Biometrics (local)
+  // ----------------------------
+  Future<bool> canUseBiometrics() async {
+    await DatabaseService.instance.init();
+
+    final ever = await KeyStorageService.instance.getString(AppConstants.kPasswordEverSet);
+    if (ever != 'true') return false;
+
+    final canCheck = await _localAuth.canCheckBiometrics;
+    final isSupported = await _localAuth.isDeviceSupported();
+    return canCheck && isSupported;
+  }
+
   Future<bool> loginWithBiometrics() async {
     if (_loading) return false;
 
@@ -214,109 +221,222 @@ class AuthViewModel extends ChangeNotifier {
       final allowed = await canUseBiometrics();
       if (!allowed) return false;
 
-      // Start biometric auth
-      final authFuture = _localAuth.authenticate(
-        localizedReason: 'Unlock CipherTask with your fingerprint',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-          useErrorDialogs: true,
-          sensitiveTransaction: true,
-        ),
-      );
-
-      // HARD STOP: prevent infinite loading if platform hangs
-      final didAuth = await authFuture.timeout(
-        const Duration(seconds: 12),
-        onTimeout: () async {
-          try {
-            await _localAuth.stopAuthentication(); // cancels prompt if stuck
-          } catch (_) {}
-          return false;
-        },
-      );
+      final didAuth = await _localAuth
+          .authenticate(
+            localizedReason: 'Unlock CipherTask with your fingerprint',
+            options: const AuthenticationOptions(
+              biometricOnly: true,
+              stickyAuth: true,
+              useErrorDialogs: true,
+              sensitiveTransaction: true,
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 12),
+            onTimeout: () async {
+              try {
+                await _localAuth.stopAuthentication();
+              } catch (_) {}
+              return false;
+            },
+          );
 
       if (!didAuth) return false;
 
-      // If device auth succeeded, load last profile and mark as authenticated
       await loadUser();
       if (_user == null) return false;
 
       _isAuthenticated = true;
       notifyListeners();
       return true;
-    } on PlatformException catch (_) {
+    } on PlatformException {
       return false;
     } finally {
       _setLoading(false);
     }
   }
 
-  /// Only allow biometrics if the device supports it and a password
-  /// has been set at least once (kPasswordEverSet == 'true').
-  Future<bool> canUseBiometrics() async {
-    await DatabaseService.instance.init();
-    final ever = await KeyStorageService.instance
-        .getString(AppConstants.kPasswordEverSet);
-    if (ever != 'true') return false;
-
-    final canCheck = await _localAuth.canCheckBiometrics;
-    final isSupported = await _localAuth.isDeviceSupported();
-    return canCheck && isSupported;
-  }
-
+  // ----------------------------
+  // Logout (local + supabase signOut best-effort)
+  // ----------------------------
   Future<void> logout() async {
     _isAuthenticated = false;
     _user = null;
+
+    // best effort
+    try {
+      await _supabase.auth.signOut();
+    } catch (_) {}
+
     notifyListeners();
   }
 
+  // ----------------------------
+  // Profile update (local)
+  // ----------------------------
+  Future<bool> updateDisplayName(String newName) async {
+    try {
+      if (_user == null) return false;
+
+      final updated = UserModel(email: _user!.email, displayName: newName.trim());
+
+      await DatabaseService.instance.init();
+      final usersBox = DatabaseService.instance.userBox;
+
+      await usersBox.put(updated.email, updated.toMap());
+      await usersBox.put('profile', updated.toMap());
+
+      _user = updated;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('updateDisplayName error: $e');
+      return false;
+    }
+  }
+
+  // ----------------------------
+  // Local delete only
+  // ----------------------------
+  Future<bool> deleteLocalAccount() async {
+    try {
+      final email = _user?.email;
+
+      await DatabaseService.instance.init();
+      await DatabaseService.instance.clearAll();
+
+      if (email != null && email.isNotEmpty) {
+        await KeyStorageService.instance.delete(AppConstants.passwordKeyForEmail(email));
+      }
+
+      await KeyStorageService.instance.delete(AppConstants.kPasswordEverSet);
+      await KeyStorageService.instance.delete(AppConstants.kDbKey);
+      await KeyStorageService.instance.delete(AppConstants.kAesKey);
+
+      await logout();
+      return true;
+    } catch (e) {
+      debugPrint('deleteLocalAccount error: $e');
+      return false;
+    }
+  }
+
+  // ==========================================================
+  // ✅ OTP RE-AUTH FOR ACCOUNT DELETION (SUPABASE + LOCAL)
+  // ==========================================================
+
+  /// Step 1: Send OTP to the currently logged-in local user's email.
+  Future<bool> startDeleteAccountOtp() async {
+    final email = _user?.email.trim().toLowerCase();
+    if (email == null || email.isEmpty) return false;
+
+    _setLoading(true);
+    try {
+      await _supabase.auth.signInWithOtp(email: email);
+      _pendingDeleteEmail = email;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('startDeleteAccountOtp error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Optional: resend OTP for delete flow.
+  Future<bool> resendDeleteOtp() async {
+    if (_loading) return false;
+
+    final email = _pendingDeleteEmail;
+    if (email == null || email.isEmpty) return false;
+
+    _setLoading(true);
+    try {
+      await _supabase.auth.signInWithOtp(email: email);
+      return true;
+    } catch (e) {
+      debugPrint('resendDeleteOtp error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Step 2: Verify OTP, then invoke Edge Function to delete Auth user, then wipe local.
+  Future<bool> verifyDeleteOtpAndDeleteAccount({required String otp}) async {
+    final email = _pendingDeleteEmail;
+    if (email == null || email.isEmpty) return false;
+
+    _setLoading(true);
+    try {
+      // (A) Verify OTP -> creates a Supabase session
+      final verifyRes = await _supabase.auth.verifyOTP(
+        type: OtpType.email,
+        email: email,
+        token: otp.trim(),
+      );
+
+      final accessToken =
+          verifyRes.session?.accessToken ?? _supabase.auth.currentSession?.accessToken;
+
+      if (accessToken == null || accessToken.isEmpty) {
+        debugPrint('Delete OTP verified but accessToken is null/empty.');
+        return false;
+      }
+
+      // // Debug: print first chars to prove we have a JWT
+      // debugPrint('Delete accessToken prefix: ${accessToken.substring(0, 20)}');
+
+      // // (B) Validate the JWT against THIS project
+      // final check = await _supabase.auth.getUser(accessToken);
+      // if (check.user == null) {
+      //   debugPrint('JWT validation failed: getUser returned null user');
+      //   return false;
+      // }
+      // debugPrint('JWT valid for userId=${check.user!.id}');
+
+      // (C) Call Edge Function (SDK invoke)
+      final fnRes = await _supabase.functions.invoke(
+        'delete-account',
+        headers: {'Authorization': 'Bearer $accessToken'},
+      );
+
+      if (fnRes.status != 200) {
+        debugPrint('delete-account failed: ${fnRes.status} ${fnRes.data}');
+        return false;
+      }
+
+      _pendingDeleteEmail = null;
+
+      // (D) Wipe local + logout (your existing local delete)
+      final okLocal = await deleteLocalAccount();
+      return okLocal;
+    } catch (e) {
+      debugPrint('verifyDeleteOtpAndDeleteAccount error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  // ----------------------------
+  // Password policy + helpers
+  // ----------------------------
   bool passwordMeetsPolicy(String password) {
-    // min 8, 1 uppercase, 1 special
     if (password.length < 8) return false;
     final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
-    final hasSpecial = RegExp(
-            r'[!@#$%^&*()_\-+=\[\]{};:"\\|,.<>/?`~]')
-        .hasMatch(password);
+    final hasSpecial = RegExp(r'[!@#$%^&*()_\-+=\[\]{};:"\\|,.<>/?`~]').hasMatch(password);
     return hasUpper && hasSpecial;
   }
 
   String _hashPassword(String password) {
-    // Stored hash only (never store raw password)
     final bytes = utf8.encode(password);
     return sha256.convert(bytes).toString();
-  }
-
-  /// Simple 6-digit OTP generator (for demo purposes).
-  String _generateOtp() {
-    final now = DateTime.now().microsecondsSinceEpoch;
-    final six = now % 1000000; // 0..999999
-    return six.toString().padLeft(6, '0');
   }
 
   void _setLoading(bool v) {
     _loading = v;
     notifyListeners();
-  }
-
-  /// Re-send OTP for the currently pending registration email.
-  Future<bool> resendOtp({required String email}) async {
-    if (_pendingEmail == null) return false;
-
-    final normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail != _pendingEmail) return false;
-
-    _setLoading(true);
-    try {
-      await _supabase.auth.signInWithOtp(
-        email: normalizedEmail,
-      );
-      return true;
-    } catch (e) {
-      debugPrint('resendOtp error: $e');
-      return false;
-    } finally {
-      _setLoading(false);
-    }
   }
 }
