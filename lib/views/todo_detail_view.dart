@@ -8,6 +8,15 @@ class TodoDetailView extends StatelessWidget {
   final TodoModel todo;
   const TodoDetailView({super.key, required this.todo});
 
+  SnackBar _miniSnackBar(String msg) {
+    return SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<TodoViewModel>(
@@ -36,7 +45,13 @@ class TodoDetailView extends StatelessWidget {
                   if (confirmed != true) return;
 
                   await vm.deleteTodo(current.id);
-                  if (context.mounted) Navigator.pop(context);
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      _miniSnackBar('Task deleted successfully.'),
+                    );
+                    Navigator.pop(context);
+                  }
                 },
               ),
             ],
@@ -58,7 +73,6 @@ class TodoDetailView extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
-
                     Row(
                       children: [
                         Checkbox(
@@ -72,26 +86,30 @@ class TodoDetailView extends StatelessWidget {
                         const Spacer(),
                         FilledButton(
                           onPressed: () => vm.toggleDone(current),
-                          child: Text(current.isDone ? 'Mark as Pending' : 'Mark as Done'),
+                          child: Text(
+                            current.isDone
+                                ? 'Mark as Pending'
+                                : 'Mark as Done',
+                          ),
                         ),
                       ],
                     ),
-
                     const Divider(height: 24),
-
                     Text(
                       'Sensitive Note',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-
                     Expanded(
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 1,
+                          ),
                         ),
                         child: SingleChildScrollView(
                           child: Text(
@@ -141,15 +159,14 @@ class TodoDetailView extends StatelessWidget {
     final titleController = TextEditingController(text: current.title);
 
     // We need the decrypted note as initial value
-    final initialNote = await vm.decryptNote(current.encryptedNote);
-    final noteController = TextEditingController(text: initialNote);
+    final decrypted = await vm.decryptNote(current.encryptedNote);
+    final noteController = TextEditingController(text: decrypted);
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Edit Task'),
-        content: SizedBox(
-          width: 420,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit task'),
+        content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -163,8 +180,8 @@ class TodoDetailView extends StatelessWidget {
               const SizedBox(height: 12),
               TextField(
                 controller: noteController,
-                minLines: 3,
-                maxLines: 8,
+                minLines: 2,
+                maxLines: 4,
                 decoration: const InputDecoration(
                   labelText: 'Sensitive Note (will be re-encrypted)',
                   border: OutlineInputBorder(),
@@ -175,18 +192,22 @@ class TodoDetailView extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Save'),
           ),
         ],
       ),
     );
 
-    if (result != true) return;
+    if (result != true) {
+      titleController.dispose();
+      noteController.dispose();
+      return;
+    }
 
     final newTitle = titleController.text.trim();
     final newNote = noteController.text.trim();
@@ -194,9 +215,11 @@ class TodoDetailView extends StatelessWidget {
     if (newTitle.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Title cannot be empty.')),
+          _miniSnackBar('Title cannot be empty.'),
         );
       }
+      titleController.dispose();
+      noteController.dispose();
       return;
     }
 
@@ -205,6 +228,12 @@ class TodoDetailView extends StatelessWidget {
       title: newTitle,
       sensitiveNotePlain: newNote,
     );
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        _miniSnackBar('Task updated successfully.'),
+      );
+    }
 
     // Controllers auto-dispose when dialog closes, but safe:
     titleController.dispose();

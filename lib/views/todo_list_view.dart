@@ -14,23 +14,22 @@ class TodoListView extends StatefulWidget {
 }
 
 class _TodoListViewState extends State<TodoListView> {
-  final _title = TextEditingController();
-  final _note = TextEditingController();
+  final TextEditingController _title = TextEditingController();
+  final TextEditingController _note = TextEditingController();
 
-    @override
-    void initState() {
-      super.initState();
+  @override
+  void initState() {
+    super.initState();
 
-      // After the first frame, load todos for the current user
-      Future.microtask(() {
-        final auth = context.read<AuthViewModel>();
-        final email = auth.user?.email;
-
-        if (email != null && email.isNotEmpty) {
-          context.read<TodoViewModel>().loadTodosForUser(email);
-        }
-      });
-    }
+    // Load todos for the current user after the first frame
+    Future.microtask(() {
+      final auth = context.read<AuthViewModel>();
+      final email = auth.user?.email;
+      if (email != null && email.isNotEmpty) {
+        context.read<TodoViewModel>().loadTodosForUser(email);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -39,19 +38,59 @@ class _TodoListViewState extends State<TodoListView> {
     super.dispose();
   }
 
+  SnackBar _miniSnackBar(String msg) {
+    return SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
     final todoVm = context.watch<TodoViewModel>();
+
+    final borderRadius = BorderRadius.circular(12);
 
     return Scaffold(
       appBar: AppBar(
         title: Text('CipherTask - ${auth.user?.displayName ?? ''}'),
         actions: [
           IconButton(
-            onPressed: () => auth.logout(),
             icon: const Icon(Icons.lock),
             tooltip: 'Lock',
+            onPressed: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Log out?'),
+                  content: const Text(
+                    'Your encrypted tasks will remain stored locally, '
+                    'but this session will end.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Log out'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed == true) {
+                await auth.logout();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  _miniSnackBar('Logged out successfully.'),
+                );
+              }
+            },
           ),
         ],
       ),
@@ -63,17 +102,57 @@ class _TodoListViewState extends State<TodoListView> {
               children: [
                 TextField(
                   controller: _title,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Task Title',
-                    border: OutlineInputBorder(),
+                    border: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white,
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white70,
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white,
+                        width: 1.2,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: _note,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Sensitive Note (AES-256 encrypted)',
-                    border: OutlineInputBorder(),
+                    border: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white,
+                        width: 1,
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white70,
+                        width: 1,
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: borderRadius,
+                      borderSide: const BorderSide(
+                        color: Colors.white,
+                        width: 1.2,
+                      ),
+                    ),
                   ),
                   minLines: 1,
                   maxLines: 3,
@@ -82,10 +161,10 @@ class _TodoListViewState extends State<TodoListView> {
                 ElevatedButton.icon(
                   onPressed: () async {
                     if (_title.text.trim().isEmpty) return;
+
                     if (auth.user == null) {
-                      // Safety: should not happen because you only reach here when logged in
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('No authenticated user.')),
+                        _miniSnackBar('No authenticated user.'),
                       );
                       return;
                     }
@@ -98,6 +177,12 @@ class _TodoListViewState extends State<TodoListView> {
 
                     _title.clear();
                     _note.clear();
+
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        _miniSnackBar('Task created successfully.'),
+                      );
+                    }
                   },
                   icon: const Icon(Icons.add),
                   label: const Text('Add Encrypted Task'),
@@ -127,20 +212,31 @@ class _TodoTile extends StatelessWidget {
   Future<bool?> _confirmDelete(BuildContext context) {
     return showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete this task?'),
-        content: const Text('This action cannot be undone.'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete task?'),
+        content: Text(
+          'Are you sure you want to delete "${todo.title}"?',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
         ],
       ),
+    );
+  }
+
+  SnackBar _miniSnackBar(String msg) {
+    return SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     );
   }
 
@@ -154,7 +250,9 @@ class _TodoTile extends StatelessWidget {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => TodoDetailView(todo: todo)),
+            MaterialPageRoute(
+              builder: (_) => TodoDetailView(todo: todo),
+            ),
           );
         },
         leading: Checkbox(
@@ -166,7 +264,9 @@ class _TodoTile extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            decoration: todo.isDone ? TextDecoration.lineThrough : TextDecoration.none,
+            decoration: todo.isDone
+                ? TextDecoration.lineThrough
+                : TextDecoration.none,
           ),
         ),
         subtitle: FutureBuilder<String>(
@@ -182,7 +282,14 @@ class _TodoTile extends StatelessWidget {
           onPressed: () async {
             final confirmed = await _confirmDelete(context);
             if (confirmed != true) return;
+
             await vm.deleteTodo(todo.id);
+
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                _miniSnackBar('Task deleted successfully.'),
+              );
+            }
           },
         ),
       ),

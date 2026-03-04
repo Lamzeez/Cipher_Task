@@ -27,97 +27,126 @@ class _RegisterViewState extends State<RegisterView> {
     super.dispose();
   }
 
+  SnackBar _miniSnackBar(String msg) {
+    return SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Register')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            SecureTextField(controller: _name, label: 'Full Name'),
-            const SizedBox(height: 12),
-            SecureTextField(
-              controller: _email,
-              label: 'Email',
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 12),
-            SecureTextField(
-              controller: _pass,
-              label: 'Password',
-              obscure: true,
-            ),
-            const SizedBox(height: 12),
-            SecureTextField(
-              controller: _confirm,
-              label: 'Confirm Password',
-              obscure: true,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: auth.loading
-                  ? null
-                  : () async {
-                      final fullName = _name.text.trim();
-                      final email = _email.text.trim();
-                      final password = _pass.text.trim();
-                      final confirm = _confirm.text.trim();
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Create secure workspace',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'We use OTP + encryption to protect your tasks.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              SecureTextField(controller: _name, label: 'Full Name'),
+              const SizedBox(height: 12),
+              SecureTextField(
+                controller: _email,
+                label: 'Email',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 12),
+              SecureTextField(
+                controller: _pass,
+                label: 'Password',
+                obscure: true,
+              ),
+              const SizedBox(height: 12),
+              SecureTextField(
+                controller: _confirm,
+                label: 'Confirm Password',
+                obscure: true,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: auth.loading
+                    ? null
+                    : () async {
+                        final fullName = _name.text.trim();
+                        final email = _email.text.trim();
+                        final password = _pass.text.trim();
+                        final confirm = _confirm.text.trim();
 
-                      if (fullName.isEmpty || email.isEmpty) {
-                        _show('Please enter your full name and email.');
-                        return;
-                      }
-
-                      if (password != confirm) {
-                        _show('Passwords do not match');
-                        return;
-                      }
-
-                      if (!auth.passwordMeetsPolicy(password)) {
-                        _show(
-                          'Password must be 8+ chars, 1 uppercase, 1 special char.',
-                        );
-                        return;
-                      }
-
-                      final ok = await auth.startRegistration(
-                        fullName: fullName,
-                        email: email,
-                        password: password,
-                      );
-
-                      if (!ok) {
-                        if (context.mounted) {
-                          _show('That email is already registered.');
+                        if (fullName.isEmpty || email.isEmpty) {
+                          _show('Please enter your full name and email.');
+                          return;
                         }
-                        return;
-                      }
 
-                      if (!context.mounted) return;
+                        if (password != confirm) {
+                          _show('Passwords do not match');
+                          return;
+                        }
 
-                      // Go to OTP verification screen
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => OtpVerifyView(email: email),
-                        ),
-                      );
-                    },
-              child: auth.loading
-                  ? const CircularProgressIndicator()
-                  : const Text('Send OTP'),
-            ),
-          ],
-        ),
+                        if (!auth.passwordMeetsPolicy(password)) {
+                          _show(
+                            'Password must be 8+ chars, 1 uppercase, 1 special char.',
+                          );
+                          return;
+                        }
+
+                        final ok = await auth.startRegistration(
+                          fullName: fullName,
+                          email: email,
+                          password: password,
+                        );
+
+                        if (!ok) {
+                          if (context.mounted) {
+                            _show('That email is already registered.');
+                          }
+                          return;
+                        }
+
+                        if (!context.mounted) return;
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          _miniSnackBar(
+                            'OTP sent to $email. Please check your email.',
+                          ),
+                        );
+
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => OtpVerifyView(email: email),
+                          ),
+                        );
+                      },
+                child: auth.loading
+                    ? const CircularProgressIndicator()
+                    : const Text('Send OTP'),
+              ),
+            ],
+          ),
+        )
+        
       ),
     );
   }
 
   void _show(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      _miniSnackBar(msg),
+    );
   }
 }
