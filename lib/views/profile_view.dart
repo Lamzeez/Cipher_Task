@@ -3,18 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../viewmodels/auth_viewmodel.dart';
 import 'delete_account_otp_view.dart';
+import '../utils/snack_bar.dart';
 
 class ProfileView extends StatelessWidget {
   const ProfileView({super.key});
-
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
-  }
 
   Future<void> _editName(BuildContext context) async {
     final auth = context.read<AuthViewModel>();
@@ -49,15 +41,16 @@ class ProfileView extends StatelessWidget {
 
     final newName = controller.text.trim();
     if (newName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(_miniSnackBar('Username cannot be empty.'));
+      showMiniSnackBar(context, 'Username cannot be empty.');
       return;
     }
 
     final success = await auth.updateDisplayName(newName);
 
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      _miniSnackBar(success ? 'Username updated.' : 'Failed to update username.'),
+    showMiniSnackBar(
+      context,
+      success ? 'Username updated.' : 'Failed to update username.',
     );
   }
 
@@ -100,7 +93,9 @@ class ProfileView extends StatelessWidget {
                 children: [
                   ListTile(
                     leading: const Icon(Icons.person),
-                    title: Text(user.displayName.isEmpty ? '(No username set)' : user.displayName),
+                    title: Text(
+                      user.displayName.isEmpty ? '(No username set)' : user.displayName,
+                    ),
                     subtitle: Text(user.email),
                   ),
                   const SizedBox(height: 16),
@@ -122,19 +117,16 @@ class ProfileView extends StatelessWidget {
                               final confirmed = await _confirmDelete(context);
                               if (confirmed != true) return;
 
-                              final ok = await context.read<AuthViewModel>().startDeleteAccountOtp();
+                              final ok =
+                                  await context.read<AuthViewModel>().startDeleteAccountOtp();
                               if (!context.mounted) return;
 
                               if (!ok) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  _miniSnackBar('Failed to send OTP. Try again.'),
-                                );
+                                showMiniSnackBar(context, 'Failed to send OTP. Try again.');
                                 return;
                               }
 
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                _miniSnackBar('OTP sent. Please check your email.'),
-                              );
+                              showMiniSnackBar(context, 'OTP sent. Please check your email.');
 
                               Navigator.push(
                                 context,

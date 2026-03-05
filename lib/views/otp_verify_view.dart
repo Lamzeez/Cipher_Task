@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cipher_task/utils/snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -59,14 +60,6 @@ class _OtpVerifyViewState extends State<OtpVerifyView> {
     });
   }
 
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -107,20 +100,16 @@ class _OtpVerifyViewState extends State<OtpVerifyView> {
                             );
 
                         if (!ok && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('Invalid or expired OTP.'),
-                          );
+                          showMiniSnackBar(context,'Invalid or expired OTP.');
                           return;
                         }
 
                         if (!context.mounted) return;
 
-                        // ✅ ensure we do NOT end up in home automatically
+                        // ensure we do NOT end up in home automatically
                         context.read<AuthViewModel>().logout();
 
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          _miniSnackBar('Registration complete! Please log in.'),
-                        );
+                        showMiniSnackBar(context, 'Registration complete! Please log in.');
 
                         // Back to login (first route)
                         Navigator.popUntil(context, (route) => route.isFirst);
@@ -141,16 +130,10 @@ class _OtpVerifyViewState extends State<OtpVerifyView> {
                         if (!mounted) return;
 
                         if (ok) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('A new code has been sent to ${widget.email}.'),
-                          );
+                          showMiniSnackBar(context,'A new code has been sent to ${widget.email}.');
                           _startResendCountdown(seconds: 60);
                         } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar(
-                              'Unable to resend code. Please wait and try again.',
-                            ),
-                          );
+                          showMiniSnackBar(context, 'Unable to resend code. Please wait and try again.');
                         }
                       },
                 child: _canResend

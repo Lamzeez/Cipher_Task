@@ -6,6 +6,7 @@ import '../viewmodels/auth_viewmodel.dart';
 import '../viewmodels/todo_viewmodel.dart';
 import 'profile_view.dart';
 import 'todo_detail_view.dart';
+import '../utils/snack_bar.dart';
 
 class TodoListView extends StatefulWidget {
   const TodoListView({super.key});
@@ -39,14 +40,7 @@ class _TodoListViewState extends State<TodoListView> {
     super.dispose();
   }
 
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
-  }
+  
 
   Future<bool?> _confirmLogout(BuildContext context) {
     return showDialog<bool>(
@@ -54,7 +48,7 @@ class _TodoListViewState extends State<TodoListView> {
       builder: (ctx) => AlertDialog(
         title: const Text('Log out?'),
         content: const Text(
-          'Your encrypted tasks will remain stored locally, but this session will end.',
+          'Your encrypted tasks will remain stored locally, but your session will end.',
         ),
         actions: [
           TextButton(
@@ -74,6 +68,12 @@ class _TodoListViewState extends State<TodoListView> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
     final todoVm = context.watch<TodoViewModel>();
+
+    // ✅ UI-only sort: keep unfinished tasks on top, move done tasks to the bottom (preserves order within groups)
+    final visibleTodos = <TodoModel>[
+      ...todoVm.todos.where((t) => !t.isDone),
+      ...todoVm.todos.where((t) => t.isDone),
+    ];
 
     final displayName = (auth.user?.displayName ?? '').trim();
     final titleText =
@@ -108,9 +108,7 @@ class _TodoListViewState extends State<TodoListView> {
                         await context.read<AuthViewModel>().logout();
 
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          _miniSnackBar('Logged out successfully.'),
-                        );
+                        showMiniSnackBar(context, 'Logged out successfully.');
                       },
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -136,15 +134,21 @@ class _TodoListViewState extends State<TodoListView> {
                 Row(
                   children: [
                     Expanded(
-                        child: Text(
-                          titleText,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                fontSize: (Theme.of(context).textTheme.titleLarge?.fontSize ?? 20) - 3,
-                              ),
-                        ),
+                      child: Text(
+                        titleText,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: (Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.fontSize ??
+                                          20) -
+                                      3,
+                                ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
@@ -159,19 +163,15 @@ class _TodoListViewState extends State<TodoListView> {
                     ),
                   ],
                 ),
-
-                
               ],
             ),
           ),
 
-            // Removed divider between Add Task and list
-
           // CREATE TODO SECTION
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              child: Column(
-                children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: Column(
+              children: [
                 TextField(
                   controller: _title,
                   decoration: InputDecoration(
@@ -218,19 +218,25 @@ class _TodoListViewState extends State<TodoListView> {
                 const SizedBox(height: 10),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    if (_title.text.trim().isEmpty) return;
+                    final title = _title.text.trim();
+                    final note = _note.text.trim();
 
-                    final user = auth.user;
-                    if (user == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        _miniSnackBar('No authenticated user.'),
+                    if (title.isEmpty || note.isEmpty) {
+                      showMiniSnackBar(
+                        context, 'Please enter both Task Title and Sensitive task details.',
                       );
                       return;
                     }
 
+                    final user = auth.user;
+                    if (user == null) {
+                      showMiniSnackBar(context, 'No authenticated user.');
+                      return;
+                    }
+
                     await todoVm.addTodo(
-                      title: _title.text.trim(),
-                      sensitiveNotePlain: _note.text.trim(),
+                      title: title,
+                      sensitiveNotePlain: note,
                       ownerEmail: user.email,
                     );
 
@@ -238,27 +244,27 @@ class _TodoListViewState extends State<TodoListView> {
                     _note.clear();
 
                     if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      _miniSnackBar('Task created successfully.'),
-                    );
+                    showMiniSnackBar(context, 'Task created successfully.');
                   },
                   icon: const Icon(Icons.add),
                   label: const Text('Add Task'),
                 ),
-                  const SizedBox(height: 18), // Add margin below Add Task button
+                const SizedBox(height: 18),
+                const Divider(height: 1, color: Colors.white),
+
+                // ✅ little space between divider and list
+                const SizedBox(height: 12),
               ],
             ),
           ),
-
-            // Removed divider between Add Task and list
 
           // LIST
           Expanded(
             child: todoVm.loading
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
-                    itemCount: todoVm.todos.length,
-                    itemBuilder: (_, i) => _TodoTile(todo: todoVm.todos[i]),
+                    itemCount: visibleTodos.length,
+                    itemBuilder: (_, i) => _TodoTile(todo: visibleTodos[i]),
                   ),
           ),
         ],
@@ -291,14 +297,6 @@ class _TodoTile extends StatelessWidget {
     );
   }
 
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -306,6 +304,10 @@ class _TodoTile extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+
+      // ✅ ONLY change to the container UI: light gray shade when done
+      color: todo.isDone ? Colors.grey.withOpacity(0.14) : null,
+
       child: ListTile(
         onTap: () {
           Navigator.push(
@@ -342,9 +344,7 @@ class _TodoTile extends StatelessWidget {
             await vm.deleteTodo(todo.id);
 
             if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              _miniSnackBar('Task deleted successfully.'),
-            );
+            showMiniSnackBar(context, 'Task deleted successfully.');
           },
         ),
       ),

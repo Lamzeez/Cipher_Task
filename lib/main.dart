@@ -196,10 +196,10 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         theme: buildCyberpunkTheme(),
         home: Consumer<AuthViewModel>(
           builder: (ctx, auth, _) {
-            // ✅ Only run session when authenticated
+            // Only run session when authenticated
             if (auth.isAuthenticated) {
               _startSessionIfNeeded(ctx);
-              // ✅ Only ping session when authenticated
+              // Only ping session when authenticated
               return Listener(
                 behavior: HitTestBehavior.translucent,
                 onPointerDown: (_) =>
@@ -207,7 +207,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                 child: const TodoListView(),
               );
             } else {
-              // ✅ Stop session on login/register/otp pages
+              // Stop session on login/register/otp pages
               _stopSessionIfNeeded();
               return const LoginView();
             }

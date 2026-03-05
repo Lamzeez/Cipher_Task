@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../viewmodels/auth_viewmodel.dart';
 import 'register_view.dart';
 import 'widgets/secure_text_field.dart';
+import '../utils/snack_bar.dart';
 
 class LoginView extends StatefulWidget {
   const LoginView({super.key});
@@ -28,15 +29,6 @@ class _LoginViewState extends State<LoginView> {
     _email.dispose();
     _pass.dispose();
     super.dispose();
-  }
-
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
   }
 
   @override
@@ -82,23 +74,19 @@ class _LoginViewState extends State<LoginView> {
                         final password = _pass.text.trim();
 
                         if (email.isEmpty || password.isEmpty) {
-                          _show('Please enter both email and password.');
+                          showMiniSnackBar(context, 'Please enter both email and password.');
                           return;
                         }
 
                         final ok =
                             await auth.loginWithPassword(email, password);
                         if (!ok && context.mounted) {
-                          _show(
-                            'Invalid email or password, or account not registered yet.',
-                          );
+                          showMiniSnackBar(context, 'Invalid email or password, or account not registered yet.');
                           return;
                         }
 
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('Logged in successfully.'),
-                          );
+                          showMiniSnackBar(context, 'Logged in successfully.');
                         }
                       },
                 child: auth.loading
@@ -116,18 +104,12 @@ class _LoginViewState extends State<LoginView> {
                         : () async {
                             final ok = await auth.loginWithBiometrics();
                             if (!ok && context.mounted) {
-                              _show(
-                                'Biometric unlock failed or cancelled.',
-                              );
+                              showMiniSnackBar(context, 'Biometric unlock failed or cancelled.');
                               return;
                             }
 
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                _miniSnackBar(
-                                  'Logged in with biometrics.',
-                                ),
-                              );
+                              showMiniSnackBar(context, 'Logged in with biometrics.');
                             }
                           },
                     icon: const Icon(Icons.fingerprint),
@@ -159,9 +141,4 @@ class _LoginViewState extends State<LoginView> {
     );
   }
 
-  void _show(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      _miniSnackBar(msg),
-    );
-  }
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cipher_task/utils/snack_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -56,15 +57,6 @@ class _DeleteAccountOtpViewState extends State<DeleteAccountOtpView> {
     });
   }
 
-  SnackBar _miniSnackBar(String msg) {
-    return SnackBar(
-      content: Text(msg),
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 2),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
@@ -79,7 +71,7 @@ class _DeleteAccountOtpViewState extends State<DeleteAccountOtpView> {
             children: [
               Text(
                 'We sent a 6-digit code to:\n$email\n\n'
-                'Enter it to permanently delete your account.',
+                'Enter code to permanently delete your account.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
@@ -104,16 +96,12 @@ class _DeleteAccountOtpViewState extends State<DeleteAccountOtpView> {
                             );
 
                         if (!ok && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('Invalid/expired OTP or delete failed.'),
-                          );
+                          showMiniSnackBar(context, 'Invalid/expired OTP or delete failed.');
                           return;
                         }
 
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          _miniSnackBar('Account deleted successfully.'),
-                        );
+                        showMiniSnackBar(context, 'Account deleted successfully.');
 
                         // Back to Login/root
                         Navigator.popUntil(context, (route) => route.isFirst);
@@ -131,14 +119,10 @@ class _DeleteAccountOtpViewState extends State<DeleteAccountOtpView> {
                         if (!mounted) return;
 
                         if (ok) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('New code sent.'),
-                          );
+                          showMiniSnackBar(context, 'New code sent.');
                           _startCountdown(60);
                         } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            _miniSnackBar('Please wait before resending.'),
-                          );
+                          showMiniSnackBar(context, 'Please wait before resending.');
                         }
                       },
                 child: _canResend

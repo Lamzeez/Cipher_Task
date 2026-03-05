@@ -322,7 +322,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   // ==========================================================
-  // ✅ OTP RE-AUTH FOR ACCOUNT DELETION (SUPABASE + LOCAL)
+  // OTP RE-AUTH FOR ACCOUNT DELETION (SUPABASE + LOCAL)
   // ==========================================================
 
   /// Step 1: Send OTP to the currently logged-in local user's email.
