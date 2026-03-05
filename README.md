@@ -13,8 +13,8 @@ This project successfully implements:
 
 
 Members:
-(M1) Lead Architect & DB Engineer - Lamoste, Dennis Dave B.
-(M2) Security & Cryptography Lead - Masanguid, John Paul
-(M3) Auth & Biometrics Specialist - Bacerra, Clawrence Carl B.
-(M4) Backend & Network (SSL) - Paja, John Mark
-(M5) UI/UX & Integration - Monton, Bondave
+- (M1) Lead Architect & DB Engineer - Lamoste, Dennis Dave B.
+- (M2) Security & Cryptography Lead - Masanguid, John Paul
+- (M3) Auth & Biometrics Specialist - Bacerra, Clawrence Carl B.
+- (M4) Backend & Network (SSL) - Paja, John Mark
+- (M5) UI/UX & Integration - Monton, Bondave
