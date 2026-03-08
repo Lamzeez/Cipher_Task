@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/database_service.dart';
 import 'services/session_service.dart';
 import 'utils/constants.dart';
+import 'utils/snack_bar.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/todo_viewmodel.dart';
 import 'views/login_view.dart';
@@ -38,14 +40,18 @@ class CipherTaskApp extends StatefulWidget {
 
 class _CipherTaskAppState extends State<CipherTaskApp> {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
 
   bool _warningDialogOpen = false;
   bool _sessionRunning = false;
+  bool _notificationReady = false;
 
   @override
   void initState() {
     super.initState();
     _initScreenProtection();
+    _initNotifications();
   }
 
   @override
@@ -54,40 +60,110 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
     super.dispose();
   }
 
+  Future<void> _initNotifications() async {
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+    );
+
+    try {
+      await _notifications.initialize(initSettings);
+
+      final androidPlugin = _notifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+
+      await androidPlugin?.requestNotificationsPermission();
+
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'session_warning_channel',
+          'Session Warning',
+          description: 'Notifications for session expiration reminders',
+          importance: Importance.max,
+          playSound: true,
+        ),
+      );
+
+      _notificationReady = true;
+    } catch (e) {
+      debugPrint('Notification init error: $e');
+    }
+  }
+
+  Future<void> _showSessionReminderNotification() async {
+    if (!_notificationReady) return;
+
+    try {
+      await _notifications.show(
+        1001,
+        'Session expiring soon',
+        'Your session will end soon. Tap Stay signed in or Log out.',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'session_warning_channel',
+            'Session Warning',
+            channelDescription: 'Notifications for session expiration reminders',
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+            enableVibration: true,
+            ticker: 'Session expiring soon',
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Session reminder notification error: $e');
+    }
+  }
+
+  Future<void> _cancelSessionReminderNotification() async {
+    try {
+      await _notifications.cancel(1001);
+    } catch (e) {
+      debugPrint('Cancel session reminder notification error: $e');
+    }
+  }
+
+  Future<void> _performForcedLogout() async {
+    final nav = _navKey.currentState;
+    final context = _navKey.currentContext;
+    if (nav == null || context == null) return;
+
+    if (_warningDialogOpen) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _warningDialogOpen = false;
+    }
+
+    await _cancelSessionReminderNotification();
+    await context.read<AuthViewModel>().logout();
+
+    nav.popUntil((route) => route.isFirst);
+
+    if (!mounted) return;
+    showMiniSnackBar(
+      context,
+      'Session expired. You have been logged out.',
+    );
+  }
+
   void _startSessionIfNeeded(BuildContext ctx) {
     if (_sessionRunning) return;
 
     _sessionRunning = true;
 
     SessionService.instance.start(
-      onTimeout: () {
-        final nav = _navKey.currentState;
-        final context = _navKey.currentContext;
-        if (nav == null || context == null) return;
-
-        // Close warning dialog if still open
-        if (_warningDialogOpen) {
-          Navigator.of(context, rootNavigator: true).pop();
-          _warningDialogOpen = false;
-        }
-
-        // Logout
-        context.read<AuthViewModel>().logout();
-
-        // Go back to login
-        nav.popUntil((route) => route.isFirst);
-
-        final messenger = ScaffoldMessenger.maybeOf(context);
-        messenger?.showSnackBar(
-          const SnackBar(
-            content: Text('Session expired. You have been logged out.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      onTimeout: () async {
+        await _performForcedLogout();
       },
-      onWarning: () {
+      onWarning: () async {
         final context = _navKey.currentContext;
         if (context == null) return;
+
+        await _showSessionReminderNotification();
         _showSessionWarningDialog(context);
       },
     );
@@ -96,13 +172,13 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
   void _stopSessionIfNeeded() {
     if (!_sessionRunning) return;
 
-    // Close warning dialog if still open
     final ctx = _navKey.currentContext;
     if (ctx != null && _warningDialogOpen) {
       Navigator.of(ctx, rootNavigator: true).pop();
       _warningDialogOpen = false;
     }
 
+    _cancelSessionReminderNotification();
     SessionService.instance.stop();
     _sessionRunning = false;
   }
@@ -137,30 +213,74 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
             );
 
             return AlertDialog(
-              title: const Text('Session expiring soon'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+                side: BorderSide(
+                  color: const Color(0xFF8B5CF6).withOpacity(0.28),
+                ),
+              ),
+              backgroundColor: const Color(0xFF0E1730),
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.notifications_active_rounded,
+                    color: Color(0xFFB79CFF),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Session expiring soon',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
+              ),
               content: Text(
                 'You have been inactive for a while.\n\n'
-                'You will be logged out in $secondsLeft seconds unless you continue using the app.',
+                'You will be logged out in $secondsLeft seconds unless you stay signed in.',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    countdownTimer?.cancel();
-                    Navigator.of(dialogContext).pop();
-                    _warningDialogOpen = false;
-                  },
-                  child: const Text('Ignore'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     countdownTimer?.cancel();
                     Navigator.of(dialogContext).pop();
                     _warningDialogOpen = false;
 
-                    // Reset full session timer
+                    await _cancelSessionReminderNotification();
+                    await _performForcedLogout();
+                  },
+                  child: const Text(
+                    'Log out',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF8B5CF6),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () async {
+                    countdownTimer?.cancel();
+                    Navigator.of(dialogContext).pop();
+                    _warningDialogOpen = false;
+
+                    await _cancelSessionReminderNotification();
                     SessionService.instance.userActivityPing();
                   },
-                  child: const Text('Stay signed in'),
+                  child: const Text(
+                    'Stay signed in',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ),
               ],
             );
@@ -196,10 +316,8 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         theme: buildCyberpunkTheme(),
         home: Consumer<AuthViewModel>(
           builder: (ctx, auth, _) {
-            // Only run session when authenticated
             if (auth.isAuthenticated) {
               _startSessionIfNeeded(ctx);
-              // Only ping session when authenticated
               return Listener(
                 behavior: HitTestBehavior.translucent,
                 onPointerDown: (_) =>
@@ -207,7 +325,6 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                 child: const TodoListView(),
               );
             } else {
-              // Stop session on login/register/otp pages
               _stopSessionIfNeeded();
               return const LoginView();
             }

@@ -17,6 +17,7 @@ class _LoginViewState extends State<LoginView> {
   final _email = TextEditingController();
   final _pass = TextEditingController();
   late Future<bool> _canBio;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -34,6 +35,8 @@ class _LoginViewState extends State<LoginView> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthViewModel>();
+
+    final borderRadius = BorderRadius.circular(12);
 
     return Scaffold(
       appBar: AppBar(title: const Text('CipherTask Login')),
@@ -60,10 +63,49 @@ class _LoginViewState extends State<LoginView> {
                 keyboardType: TextInputType.emailAddress,
               ),
               const SizedBox(height: 12),
-              SecureTextField(
+              TextField(
                 controller: _pass,
-                label: 'Password',
-                obscure: true,
+                obscureText: _obscurePassword,
+                style: const TextStyle(color: Colors.white),
+                cursorColor: Colors.white,
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  labelStyle: const TextStyle(color: Colors.white70),
+                  border: OutlineInputBorder(
+                    borderRadius: borderRadius,
+                    borderSide: const BorderSide(
+                      color: Colors.white,
+                      width: 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: borderRadius,
+                    borderSide: const BorderSide(
+                      color: Colors.white70,
+                      width: 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: borderRadius,
+                    borderSide: const BorderSide(
+                      color: Colors.white,
+                      width: 1.2,
+                    ),
+                  ),
+                  suffixIcon: IconButton(
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                    icon: Icon(
+                      _obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -74,19 +116,28 @@ class _LoginViewState extends State<LoginView> {
                         final password = _pass.text.trim();
 
                         if (email.isEmpty || password.isEmpty) {
-                          showMiniSnackBar(context, 'Please enter both email and password.');
+                          showMiniSnackBar(
+                            context,
+                            'Please enter both email and password.',
+                          );
                           return;
                         }
 
                         final ok =
                             await auth.loginWithPassword(email, password);
                         if (!ok && context.mounted) {
-                          showMiniSnackBar(context, 'Invalid email or password, or account not registered yet.');
+                          showMiniSnackBar(
+                            context,
+                            'Invalid email or password, or account not registered yet.',
+                          );
                           return;
                         }
 
                         if (context.mounted) {
-                          showMiniSnackBar(context, 'Logged in successfully.');
+                          showMiniSnackBar(
+                            context,
+                            'Logged in successfully.',
+                          );
                         }
                       },
                 child: auth.loading
@@ -104,12 +155,18 @@ class _LoginViewState extends State<LoginView> {
                         : () async {
                             final ok = await auth.loginWithBiometrics();
                             if (!ok && context.mounted) {
-                              showMiniSnackBar(context, 'Biometric unlock failed or cancelled.');
+                              showMiniSnackBar(
+                                context,
+                                'Biometric unlock failed or cancelled.',
+                              );
                               return;
                             }
 
                             if (context.mounted) {
-                              showMiniSnackBar(context, 'Logged in with biometrics.');
+                              showMiniSnackBar(
+                                context,
+                                'Logged in with biometrics.',
+                              );
                             }
                           },
                     icon: const Icon(Icons.fingerprint),
@@ -140,5 +197,4 @@ class _LoginViewState extends State<LoginView> {
       ),
     );
   }
-
 }

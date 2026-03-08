@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Reusable mini-snackbar helpers.
-/// Use [showMiniSnackBar] for a centered snackbar that does NOT move when the keyboard appears.
-/// For the normal ScaffoldMessenger style, use:
-/// ScaffoldMessenger.of(context).showSnackBar(miniSnackBar(context, 'Message'));
 SnackBar miniSnackBar(
   BuildContext context,
   String msg, {
@@ -12,28 +8,40 @@ SnackBar miniSnackBar(
   return SnackBar(
     behavior: SnackBarBehavior.floating,
     duration: duration,
-    // Bigger padding
-    content: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+    backgroundColor: Colors.transparent,
+    elevation: 0,
+    margin: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+    content: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0E1730).withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF8B5CF6).withOpacity(0.22),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(0.35),
+          ),
+        ],
+      ),
       child: Text(
         msg,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 14, height: 1.2, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          fontSize: 14,
+          height: 1.3,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
       ),
-    ),
-    // Soft border + rounded corners so it won’t blend with dark themes
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(14),
-      side: BorderSide(color: Colors.white.withOpacity(0.18), width: 1),
     ),
   );
 }
 
-/// Shows a centered “mini snackbar” using an OverlayEntry.
-///
-/// This stays centered even if the keyboard opens/closes.
-/// Call it like:
-/// showMiniSnackBar(context, 'Saved!');
 void showMiniSnackBar(
   BuildContext context,
   String msg, {
@@ -42,31 +50,33 @@ void showMiniSnackBar(
   final overlay = Overlay.of(context);
   if (overlay == null) return;
 
-  // Full-screen size independent of keyboard/viewInsets
   final view = View.of(context);
   final size = MediaQueryData.fromView(view).size;
 
   late final OverlayEntry entry;
   entry = OverlayEntry(
     builder: (_) => Positioned(
-      left: 16,
-      right: 16,
-      top: (size.height / 2) - 40,
+      left: 18,
+      right: 18,
+      top: (size.height / 2) - 42,
       child: Material(
         color: Colors.transparent,
         child: Center(
           child: Container(
             constraints: const BoxConstraints(maxWidth: 520),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.92),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withOpacity(0.18), width: 1),
+              color: const Color(0xFF0E1730).withOpacity(0.97),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFF8B5CF6).withOpacity(0.24),
+                width: 1,
+              ),
               boxShadow: [
                 BoxShadow(
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                  color: Colors.black.withOpacity(0.38),
                 ),
               ],
             ),
@@ -75,8 +85,9 @@ void showMiniSnackBar(
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 14,
-                height: 1.2,
+                height: 1.3,
                 fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
           ),

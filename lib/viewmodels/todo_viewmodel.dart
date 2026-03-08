@@ -7,6 +7,9 @@ class TodoViewModel extends ChangeNotifier {
   final List<TodoModel> _todos = [];
   List<TodoModel> get todos => List.unmodifiable(_todos);
 
+  final Map<String, String> _decryptedNotes = {};
+  String decryptedNoteFor(String id) => _decryptedNotes[id] ?? '';
+
   bool _loading = false;
   bool get loading => _loading;
 
@@ -21,6 +24,7 @@ class TodoViewModel extends ChangeNotifier {
 
       _currentOwnerEmail = ownerEmail;
       _todos.clear();
+      _decryptedNotes.clear();
 
       final box = DatabaseService.instance.todosBox;
 
@@ -29,7 +33,6 @@ class TodoViewModel extends ChangeNotifier {
 
         final raw = Map<String, dynamic>.from(value as Map);
 
-        // Skip records that don't belong to this user
         final email = raw['ownerEmail'] as String? ?? '';
         if (email != ownerEmail) continue;
 
@@ -41,11 +44,24 @@ class TodoViewModel extends ChangeNotifier {
         }
       }
 
-      // Newest first
       _todos.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      await _primeDecryptedNotes();
     } finally {
       _setLoading(false);
     }
+  }
+
+  Future<void> _primeDecryptedNotes() async {
+    for (final todo in _todos) {
+      try {
+        _decryptedNotes[todo.id] =
+            await EncryptionService.instance.decryptNote(todo.encryptedNote);
+      } catch (_) {
+        _decryptedNotes[todo.id] = '';
+      }
+    }
+    notifyListeners();
   }
 
   /// Create a todo for [ownerEmail]
@@ -65,6 +81,10 @@ class TodoViewModel extends ChangeNotifier {
       final encryptedNote =
           await EncryptionService.instance.encryptNote(sensitiveNotePlain);
 
+      debugPrint('TODO TITLE (plain): $title');
+      debugPrint('TODO DETAIL (plain): $sensitiveNotePlain');
+      debugPrint('TODO DETAIL (encrypted): $encryptedNote');
+
       final todo = TodoModel(
         id: id,
         title: title,
@@ -74,8 +94,14 @@ class TodoViewModel extends ChangeNotifier {
         ownerEmail: ownerEmail,
       );
 
+      debugPrint('Saving todo to Hive...');
+      debugPrint('ownerEmail: $ownerEmail');
+      debugPrint('encryptedNote to save: $encryptedNote');
+
       await box.put(id, todo.toMap());
       _todos.insert(0, todo);
+      _decryptedNotes[id] = sensitiveNotePlain;
+      notifyListeners();
     } finally {
       _setLoading(false);
     }
@@ -121,6 +147,7 @@ class TodoViewModel extends ChangeNotifier {
     final idx = _todos.indexWhere((t) => t.id == id);
     if (idx != -1) {
       _todos[idx] = todo;
+      _decryptedNotes[id] = sensitiveNotePlain;
       notifyListeners();
     }
   }
@@ -129,7 +156,42 @@ class TodoViewModel extends ChangeNotifier {
     await DatabaseService.instance.init();
     await DatabaseService.instance.todosBox.delete(id);
     _todos.removeWhere((t) => t.id == id);
+    _decryptedNotes.remove(id);
     notifyListeners();
+  }
+
+  Future<void> deleteMultipleTodos(List<String> ids) async {
+    if (ids.isEmpty) return;
+
+    await DatabaseService.instance.init();
+    final box = DatabaseService.instance.todosBox;
+
+    await box.deleteAll(ids);
+
+    _todos.removeWhere((t) => ids.contains(t.id));
+    for (final id in ids) {
+      _decryptedNotes.remove(id);
+    }
+
+    notifyListeners();
+  }
+
+  List<TodoModel> getFilteredTodos(String query) {
+    final trimmed = query.trim().toLowerCase();
+
+    final base = <TodoModel>[
+      ..._todos.where((t) => !t.isDone),
+      ..._todos.where((t) => t.isDone),
+    ];
+
+    if (trimmed.isEmpty) return base;
+
+    return base.where((todo) {
+      final titleMatch = todo.title.toLowerCase().contains(trimmed);
+      final noteMatch =
+          (_decryptedNotes[todo.id] ?? '').toLowerCase().contains(trimmed);
+      return titleMatch || noteMatch;
+    }).toList();
   }
 
   Future<String> decryptNote(String cipher) {
