@@ -14,26 +14,26 @@ class ProfileView extends StatelessWidget {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(
-        color: Colors.white70,
+        color: Color(0xFF6F6F6F),
         fontSize: 14,
       ),
       filled: true,
-      fillColor: const Color(0xFF101B38),
+      fillColor: const Color(0xFFF9F9F9),
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 16,
         vertical: 16,
       ),
       border: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Colors.white24, width: 1),
+        borderSide: const BorderSide(color: Color(0xFFE3E3E3), width: 1.3),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Colors.white24, width: 1),
+        borderSide: const BorderSide(color: Color(0xFFE3E3E3), width: 1.3),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Color(0xFF9B7BFF), width: 1.3),
+        borderSide: const BorderSide(color: Color(0xFF2F73D9), width: 1.5),
       ),
     );
   }
@@ -46,11 +46,19 @@ class ProfileView extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit username'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Edit username',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
         content: TextField(
           controller: controller,
-          style: const TextStyle(color: Colors.white),
-          cursorColor: Colors.white,
+          style: const TextStyle(color: Colors.black87),
+          cursorColor: const Color(0xFF2F73D9),
           decoration: _dialogFieldDecoration('Username'),
         ),
         actions: [
@@ -58,10 +66,9 @@ class ProfileView extends StatelessWidget {
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF8B5CF6),
-              foregroundColor: Colors.white,
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF2F73D9),
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Save'),
@@ -91,19 +98,30 @@ class ProfileView extends StatelessWidget {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete account?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Delete account?',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
         content: const Text(
           'This will permanently delete your Supabase Auth account and wipe encrypted local data.\n\nWe will send an OTP to confirm.',
+          style: TextStyle(
+            color: Colors.black87,
+            height: 1.5,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
+          FilledButton(
+            style: FilledButton.styleFrom(
               backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Continue'),
@@ -119,17 +137,29 @@ class ProfileView extends StatelessWidget {
     final user = auth.user;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F6F8),
       appBar: AppBar(
+        backgroundColor: const Color(0xFFF5F6F8),
+        foregroundColor: Colors.black87,
+        elevation: 0,
         centerTitle: true,
         title: const Text(
           'Profile',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
         ),
       ),
       body: user == null
-          ? const Center(child: Text('No user loaded.'))
+          ? const Center(
+              child: Text(
+                'No user loaded.',
+                style: TextStyle(color: Colors.black87),
+              ),
+            )
           : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
               child: Column(
                 children: [
                   _ProfileHeaderCard(
@@ -143,31 +173,67 @@ class ProfileView extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Account Actions',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF8B5CF6),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 15),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.manage_accounts_rounded,
+                              color: Color(0xFF2F73D9),
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Account Actions',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black87,
                               ),
                             ),
-                            onPressed:
-                                auth.loading ? null : () => _editName(context),
-                            icon: const Icon(Icons.edit_rounded),
-                            label: const Text(
-                              'Edit username',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF4A8AF4),
+                                  Color(0xFF1F67C8),
+                                ],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF2F73D9).withOpacity(0.25),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(vertical: 15),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              onPressed:
+                                  auth.loading ? null : () => _editName(context),
+                              icon: const Icon(
+                                Icons.edit_rounded,
+                                color: Colors.white,
+                              ),
+                              label: const Text(
+                                'Edit username',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -180,8 +246,9 @@ class ProfileView extends StatelessWidget {
                               side: const BorderSide(
                                 color: Colors.redAccent,
                               ),
+                              backgroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(18),
                               ),
                             ),
                             onPressed: auth.loading
@@ -260,43 +327,42 @@ class _ProfileHeaderCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
         gradient: const LinearGradient(
           colors: [
-            Color(0xFF121E3D),
-            Color(0xFF0E1730),
+            Color(0xFF4A8AF4),
+            Color(0xFF1F67C8),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        border: Border.all(color: Colors.white10),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.22),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+            color: const Color(0xFF2F73D9).withOpacity(0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: Column(
         children: [
           Container(
-            width: 78,
-            height: 78,
+            width: 82,
+            height: 82,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF8B5CF6).withOpacity(0.18),
+              color: Colors.white.withOpacity(0.18),
               border: Border.all(
-                color: const Color(0xFFB79CFF).withOpacity(0.35),
+                color: Colors.white.withOpacity(0.28),
               ),
             ),
             child: Center(
               child: Text(
                 initial,
                 style: const TextStyle(
-                  fontSize: 28,
+                  fontSize: 30,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFFD7C8FF),
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -308,6 +374,7 @@ class _ProfileHeaderCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w800,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 6),
@@ -336,13 +403,13 @@ class _SectionCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF0E1730),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: const Color(0xFFECECEC)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 12,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
             offset: const Offset(0, 6),
           ),
         ],

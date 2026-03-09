@@ -147,6 +147,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
     showMiniSnackBar(
       context,
       'Session expired. You have been logged out.',
+      success: false,
     );
   }
 
@@ -215,33 +216,72 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
             return AlertDialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(22),
-                side: BorderSide(
-                  color: const Color(0xFF8B5CF6).withOpacity(0.28),
-                ),
               ),
-              backgroundColor: const Color(0xFF0E1730),
+              backgroundColor: Colors.white,
+              titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 10),
+              contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               title: const Row(
                 children: [
                   Icon(
                     Icons.notifications_active_rounded,
-                    color: Color(0xFFB79CFF),
+                    color: Color(0xFF2F73D9),
                   ),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'Session expiring soon',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F1F1F),
+                      ),
                     ),
                   ),
                 ],
               ),
-              content: Text(
-                'You have been inactive for a while.\n\n'
-                'You will be logged out in $secondsLeft seconds unless you stay signed in.',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  height: 1.4,
-                ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'You have been inactive for a while.',
+                    style: TextStyle(
+                      color: Color(0xFF555555),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF1FB),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFD7E4FA),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.schedule_rounded,
+                          color: Color(0xFF2F73D9),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'You will be logged out in $secondsLeft second${secondsLeft == 1 ? '' : 's'} unless you stay signed in.',
+                            style: const TextStyle(
+                              color: Color(0xFF1F1F1F),
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               actions: [
                 TextButton(
@@ -263,7 +303,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8B5CF6),
+                    backgroundColor: const Color(0xFF2F73D9),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -313,7 +353,7 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         navigatorKey: _navKey,
         title: AppConstants.appName,
         debugShowCheckedModeBanner: false,
-        theme: buildCyberpunkTheme(),
+        theme: buildAppTheme(),
         home: Consumer<AuthViewModel>(
           builder: (ctx, auth, _) {
             if (auth.isAuthenticated) {

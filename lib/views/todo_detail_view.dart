@@ -30,7 +30,7 @@ class TodoDetailView extends StatelessWidget {
       datePart = '$mm-$dd-$yy';
     }
 
-    return '$hour:$minute$meridiem $datePart';
+    return '$hour:$minute $meridiem • $datePart';
   }
 
   InputDecoration _dialogFieldDecoration(String label) {
@@ -39,26 +39,26 @@ class TodoDetailView extends StatelessWidget {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(
-        color: Colors.white70,
+        color: Color(0xFF6F6F6F),
         fontSize: 14,
       ),
       filled: true,
-      fillColor: const Color(0xFF101B38),
+      fillColor: const Color(0xFFF9F9F9),
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 16,
         vertical: 16,
       ),
       border: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Colors.white24, width: 1),
+        borderSide: const BorderSide(color: Color(0xFFE3E3E3), width: 1.3),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Colors.white24, width: 1),
+        borderSide: const BorderSide(color: Color(0xFFE3E3E3), width: 1.3),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: radius,
-        borderSide: const BorderSide(color: Color(0xFF9B7BFF), width: 1.3),
+        borderSide: const BorderSide(color: Color(0xFF2F73D9), width: 1.5),
       ),
     );
   }
@@ -72,37 +72,7 @@ class TodoDetailView extends StatelessWidget {
             : todo;
 
         return Scaffold(
-          appBar: AppBar(
-            centerTitle: true,
-            title: const Text(
-              'Task Details',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.edit_rounded),
-                tooltip: 'Edit',
-                onPressed: () async {
-                  await _showEditDialog(context, vm, current);
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded),
-                tooltip: 'Delete',
-                onPressed: () async {
-                  final confirmed = await _confirmDelete(context);
-                  if (confirmed != true) return;
-
-                  await vm.deleteTodo(current.id);
-
-                  if (context.mounted) {
-                    showMiniSnackBar(context, 'Task deleted successfully.');
-                    Navigator.pop(context);
-                  }
-                },
-              ),
-            ],
-          ),
+          backgroundColor: const Color(0xFFF5F6F8),
           body: FutureBuilder<String>(
             future: vm.decryptNote(current.encryptedNote),
             builder: (context, snap) {
@@ -110,111 +80,170 @@ class TodoDetailView extends StatelessWidget {
                   ? (snap.data ?? '')
                   : '';
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _TopTaskCard(
-                      title: current.title,
-                      isDone: current.isDone,
-                      timestampText: _formatCreatedAt(current.createdAt),
-                      onToggleDone: () => vm.toggleDone(current),
+              return CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  SliverAppBar(
+                    backgroundColor: const Color(0xFFF5F6F8),
+                    foregroundColor: Colors.black87,
+                    elevation: 0,
+                    pinned: true,
+                    centerTitle: true,
+                    title: const Text(
+                      'Task Details',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.black87,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_rounded),
+                        tooltip: 'Edit',
+                        onPressed: () async {
+                          await _showEditDialog(context, vm, current);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        tooltip: 'Delete',
+                        onPressed: () async {
+                          final confirmed = await _confirmDelete(context);
+                          if (confirmed != true) return;
+
+                          await vm.deleteTodo(current.id);
+
+                          if (context.mounted) {
+                            showMiniSnackBar(
+                              context,
+                              'Task deleted successfully.',
+                            );
+                            Navigator.pop(context);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          _TopTaskCard(
+                            title: current.title,
+                            isDone: current.isDone,
+                            timestampText: _formatCreatedAt(current.createdAt),
+                            onToggleDone: () => vm.toggleDone(current),
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.lock_outline_rounded,
+                                      color: Color(0xFF2F73D9),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text(
+                                      'Sensitive Note',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 14),
+                                Container(
+                                  width: double.infinity,
+                                  constraints:
+                                      const BoxConstraints(minHeight: 220),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF9F9F9),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: const Color(0xFFE3E3E3),
+                                    ),
+                                  ),
+                                  child: snap.connectionState ==
+                                          ConnectionState.done
+                                      ? SelectableText(
+                                          note.trim().isEmpty ? '(empty)' : note,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            height: 1.6,
+                                            color: Colors.black87,
+                                          ),
+                                        )
+                                      : const Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child:
+                                                  CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
+                                            SizedBox(width: 12),
+                                            Text(
+                                              'Decrypting...',
+                                              style: TextStyle(
+                                                color: Color(0xFF6F6F6F),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
                             children: [
-                              Icon(
-                                Icons.lock_outline_rounded,
-                                color: Color(0xFFB79CFF),
+                              Expanded(
+                                child: _ActionButton(
+                                  icon: current.isDone
+                                      ? Icons.refresh_rounded
+                                      : Icons.task_alt_rounded,
+                                  label: current.isDone
+                                      ? 'Mark Pending'
+                                      : 'Mark Done',
+                                  backgroundColor: current.isDone
+                                      ? const Color(0xFFEAF1FB)
+                                      : const Color(0xFF2F73D9),
+                                  foregroundColor: current.isDone
+                                      ? const Color(0xFF2F73D9)
+                                      : Colors.white,
+                                  onPressed: () => vm.toggleDone(current),
+                                ),
                               ),
-                              SizedBox(width: 10),
-                              Text(
-                                'Sensitive Note',
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _ActionButton(
+                                  icon: Icons.edit_rounded,
+                                  label: 'Edit Task',
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: const Color(0xFF2F73D9),
+                                  borderColor: const Color(0xFFD6E4FA),
+                                  onPressed: () async {
+                                    await _showEditDialog(context, vm, current);
+                                  },
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          Container(
-                            width: double.infinity,
-                            constraints: const BoxConstraints(minHeight: 220),
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF101B38),
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(color: Colors.white10),
-                            ),
-                            child: snap.connectionState == ConnectionState.done
-                                ? SelectableText(
-                                    note.trim().isEmpty ? '(empty)' : note,
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      height: 1.5,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                      SizedBox(width: 12),
-                                      Text(
-                                        'Decrypting...',
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                          ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ActionButton(
-                            icon: current.isDone
-                                ? Icons.refresh_rounded
-                                : Icons.task_alt_rounded,
-                            label: current.isDone
-                                ? 'Mark as Pending'
-                                : 'Mark as Done',
-                            backgroundColor: current.isDone
-                                ? const Color(0xFF24304F)
-                                : const Color(0xFF8B5CF6),
-                            onPressed: () => vm.toggleDone(current),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ActionButton(
-                            icon: Icons.edit_rounded,
-                            label: 'Edit Task',
-                            backgroundColor: const Color(0xFF24304F),
-                            onPressed: () async {
-                              await _showEditDialog(context, vm, current);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               );
             },
           ),
@@ -227,6 +256,7 @@ class TodoDetailView extends StatelessWidget {
     return showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Delete this task?'),
         content: const Text('This action cannot be undone.'),
         actions: [
@@ -258,22 +288,30 @@ class TodoDetailView extends StatelessWidget {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit task'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Edit task',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: titleController,
-                style: const TextStyle(color: Colors.white),
-                cursorColor: Colors.white,
+                style: const TextStyle(color: Colors.black87),
+                cursorColor: const Color(0xFF2F73D9),
                 decoration: _dialogFieldDecoration('Title'),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: noteController,
-                style: const TextStyle(color: Colors.white),
-                cursorColor: Colors.white,
+                style: const TextStyle(color: Colors.black87),
+                cursorColor: const Color(0xFF2F73D9),
                 minLines: 3,
                 maxLines: 5,
                 decoration: _dialogFieldDecoration(
@@ -290,7 +328,7 @@ class TodoDetailView extends StatelessWidget {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF8B5CF6),
+              backgroundColor: const Color(0xFF2F73D9),
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Save'),
@@ -351,21 +389,20 @@ class _TopTaskCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
         gradient: const LinearGradient(
           colors: [
-            Color(0xFF121E3D),
-            Color(0xFF0E1730),
+            Color(0xFF4A8AF4),
+            Color(0xFF1F67C8),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        border: Border.all(color: Colors.white10),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.22),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+            color: const Color(0xFF2F73D9).withOpacity(0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -384,16 +421,16 @@ class _TopTaskCard extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: isDone
-                      ? Colors.green.withOpacity(0.14)
-                      : Colors.orange.withOpacity(0.14),
+                      ? Colors.white.withOpacity(0.20)
+                      : Colors.white.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   isDone ? 'Completed' : 'Pending',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: isDone ? Colors.greenAccent : Colors.orangeAccent,
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -403,7 +440,7 @@ class _TopTaskCard extends StatelessWidget {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
+                  color: Colors.white.withOpacity(0.16),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(
@@ -412,14 +449,14 @@ class _TopTaskCard extends StatelessWidget {
                     const Icon(
                       Icons.schedule_rounded,
                       size: 14,
-                      color: Colors.white70,
+                      color: Colors.white,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       timestampText,
                       style: const TextStyle(
                         fontSize: 12,
-                        color: Colors.white70,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -436,7 +473,7 @@ class _TopTaskCard extends StatelessWidget {
               height: 1.2,
               fontWeight: FontWeight.w800,
               decoration: isDone ? TextDecoration.lineThrough : null,
-              color: isDone ? Colors.white70 : Colors.white,
+              color: Colors.white,
             ),
           ),
           const SizedBox(height: 16),
@@ -447,16 +484,18 @@ class _TopTaskCard extends StatelessWidget {
                 child: Checkbox(
                   value: isDone,
                   onChanged: (_) => onToggleDone(),
+                  activeColor: Colors.white,
+                  checkColor: const Color(0xFF2F73D9),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  side: const BorderSide(color: Colors.white54, width: 1.3),
+                  side: const BorderSide(color: Colors.white, width: 1.3),
                 ),
               ),
               Text(
                 isDone ? 'This task is done' : 'This task is still pending',
                 style: const TextStyle(
-                  color: Colors.white70,
+                  color: Colors.white,
                   fontSize: 14,
                 ),
               ),
@@ -478,13 +517,13 @@ class _SectionCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF0E1730),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: const Color(0xFFECECEC)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 12,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 14,
             offset: const Offset(0, 6),
           ),
         ],
@@ -498,12 +537,16 @@ class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color backgroundColor;
+  final Color foregroundColor;
+  final Color? borderColor;
   final VoidCallback onPressed;
 
   const _ActionButton({
     required this.icon,
     required this.label,
     required this.backgroundColor,
+    required this.foregroundColor,
+    this.borderColor,
     required this.onPressed,
   });
 
@@ -512,11 +555,14 @@ class _ActionButton extends StatelessWidget {
     return ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
         backgroundColor: backgroundColor,
-        foregroundColor: Colors.white,
+        foregroundColor: foregroundColor,
+        elevation: backgroundColor == Colors.white ? 0 : 4,
         padding: const EdgeInsets.symmetric(vertical: 15),
-        elevation: 4,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
+          side: borderColor == null
+              ? BorderSide.none
+              : BorderSide(color: borderColor!),
         ),
       ),
       onPressed: onPressed,
