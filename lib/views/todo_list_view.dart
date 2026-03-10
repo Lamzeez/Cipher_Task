@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -46,6 +48,31 @@ class _TodoListViewState extends State<TodoListView> {
     _note.dispose();
     _search.dispose();
     super.dispose();
+  }
+
+  bool _oauthSnackShown = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_oauthSnackShown) return;
+    _oauthSnackShown = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final msg =
+          context.read<AuthViewModel>().takePendingOAuthSnackBarMessage();
+
+      if (msg != null) {
+        showMiniSnackBar(
+          context,
+          msg,
+          success: true,
+        );
+      }
+    });
   }
 
   Future<bool?> _confirmLogout(BuildContext context) {
@@ -244,6 +271,7 @@ class _TodoListViewState extends State<TodoListView> {
                         children: [
                           _TopWelcomeCard(
                             userName: userName,
+                            avatarFile: auth.avatarFile,
                             onProfileTap: () {
                               Navigator.push(
                                 context,
@@ -504,11 +532,11 @@ class _TodoListViewState extends State<TodoListView> {
                                     ),
                                   ),
                                   child: Text(
-                                    '${visibleTodos.length} item${visibleTodos.length == 1 ? '' : 's'}',
+                                    '${visibleTodos.length} task${visibleTodos.length == 1 ? '' : 's'}',
                                     style: const TextStyle(
-                                      color: Color(0xFF666666),
-                                      fontSize: 12,
+                                      fontSize: 13,
                                       fontWeight: FontWeight.w600,
+                                      color: Color(0xFF555555),
                                     ),
                                   ),
                                 ),
@@ -524,9 +552,9 @@ class _TodoListViewState extends State<TodoListView> {
                           hasScrollBody: false,
                           child: Center(
                             child: Padding(
-                              padding: const EdgeInsets.all(24),
+                              padding: const EdgeInsets.only(bottom: 60),
                               child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Container(
                                     width: 86,
@@ -608,19 +636,25 @@ class _TodoListViewState extends State<TodoListView> {
   }
 }
 
+// ── Top welcome card ──────────────────────────────────────────────────────────
+
 class _TopWelcomeCard extends StatelessWidget {
   final String userName;
+  final File? avatarFile;
   final VoidCallback onProfileTap;
   final VoidCallback onLogoutTap;
 
   const _TopWelcomeCard({
     required this.userName,
+    required this.avatarFile,
     required this.onProfileTap,
     required this.onLogoutTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final initial = userName.isNotEmpty ? userName[0].toUpperCase() : '?';
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -643,20 +677,54 @@ class _TopWelcomeCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Icon(
-              Icons.shield_outlined,
-              color: Colors.white,
-              size: 30,
+          // ── Avatar / profile button ─────────────────────────────────────
+          GestureDetector(
+            onTap: onProfileTap,
+            child: Container(
+              width: 58,
+              height: 58,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.28),
+                  width: 1.5,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(17),
+                child: avatarFile != null
+                    ? Image.file(
+                        avatarFile!,
+                        fit: BoxFit.cover,
+                        width: 58,
+                        height: 58,
+                        errorBuilder: (_, __, ___) => Center(
+                          child: Text(
+                            initial,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: Text(
+                          initial,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+              ),
             ),
           ),
           const SizedBox(width: 14),
+          // ── Greeting text ───────────────────────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -682,42 +750,50 @@ class _TopWelcomeCard extends StatelessWidget {
               ],
             ),
           ),
-          Column(
-            children: [
-              Material(
-                color: Colors.white.withOpacity(0.16),
+          // ── Logout button ───────────────────────────────────────────────
+          GestureDetector(
+            onTap: onLogoutTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 9,
+              ),
+              decoration: BoxDecoration(
+                color: const Color.fromARGB(255, 240, 94, 94).withOpacity(1),
                 borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  onTap: onProfileTap,
-                  borderRadius: BorderRadius.circular(14),
-                  child: const Padding(
-                    padding: EdgeInsets.all(10),
-                    child: Icon(
-                      Icons.person_rounded,
-                      color: Colors.white,
+                border: Border.all(
+                  color: Colors.redAccent.withOpacity(0.85),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(
+                    Icons.logout_rounded,
+                    color: Colors.white,
+                    size: 15,
+                  ),
+                  SizedBox(width: 5),
+                  Text(
+                    'Logout',
+                    style: TextStyle(
+                      color: Color.fromARGB(255, 255, 255, 255),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
                     ),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: onLogoutTap,
-                child: const Text(
-                  'Logout',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Stats card ────────────────────────────────────────────────────────────────
 
 class _StatsCard extends StatelessWidget {
   final IconData icon;
@@ -749,31 +825,33 @@ class _StatsCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF1FB),
-              borderRadius: BorderRadius.circular(14),
+              color: const Color(0xFFEEF3FC),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: const Color(0xFF2F73D9)),
+            child: Icon(icon, color: const Color(0xFF2F73D9), size: 22),
           ),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black87,
-                ),
-              ),
-              Text(
                 title,
                 style: const TextStyle(
-                  color: Color(0xFF777777),
                   fontSize: 13,
+                  color: Color(0xFF888888),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
                 ),
               ),
             ],
@@ -784,18 +862,21 @@ class _StatsCard extends StatelessWidget {
   }
 }
 
+// ── White section card ────────────────────────────────────────────────────────
+
 class _WhiteSectionCard extends StatelessWidget {
   final Widget child;
-
   const _WhiteSectionCard({required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFECECEC)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -803,12 +884,13 @@ class _WhiteSectionCard extends StatelessWidget {
             offset: const Offset(0, 6),
           ),
         ],
-        border: Border.all(color: const Color(0xFFECECEC)),
       ),
       child: child,
     );
   }
 }
+
+// ── Selection bar ─────────────────────────────────────────────────────────────
 
 class _SelectionBar extends StatelessWidget {
   final int selectedCount;
@@ -830,77 +912,151 @@ class _SelectionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFD9E6FA)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$selectedCount selected',
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 390;
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$selectedCount selected',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: onCancel,
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Color(0xFF888888),
+                      ),
+                      tooltip: 'Cancel',
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: hasItems ? onSelectAll : null,
+                      child: Text(
+                        allVisibleSelected ? 'Deselect all' : 'Select all',
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_rounded, size: 16),
+                      label: const Text('Delete'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return Row(
             children: [
-              OutlinedButton.icon(
-                onPressed: hasItems ? onSelectAll : null,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF2F73D9),
-                  side: const BorderSide(color: Color(0xFFBFD4F7)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+              Flexible(
+                child: Text(
+                  '$selectedCount selected',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
                   ),
                 ),
-                icon: Icon(
-                  allVisibleSelected
-                      ? Icons.deselect_rounded
-                      : Icons.select_all_rounded,
-                ),
-                label: Text(
-                  allVisibleSelected ? 'Clear all' : 'Select all',
-                ),
               ),
-              ElevatedButton.icon(
-                onPressed: onDelete,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: hasItems ? onSelectAll : null,
+                        child: Text(
+                          allVisibleSelected ? 'Deselect all' : 'Select all',
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_rounded, size: 16),
+                        label: const Text('Delete'),
+                      ),
+                      IconButton(
+                        onPressed: onCancel,
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Color(0xFF888888),
+                        ),
+                        tooltip: 'Cancel',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
                   ),
                 ),
-                icon: const Icon(Icons.delete_rounded),
-                label: const Text('Delete selected'),
-              ),
-              TextButton(
-                onPressed: onCancel,
-                child: const Text('Cancel'),
               ),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 }
+
+// ── Todo tile ─────────────────────────────────────────────────────────────────
 
 class _TodoTile extends StatelessWidget {
   final TodoModel todo;
@@ -927,7 +1083,7 @@ class _TodoTile extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Delete task?'),
-        content: Text('Are you sure you want to delete "${todo.title}"?'),
+        content: const Text('Are you sure you want to delete this task?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -950,50 +1106,41 @@ class _TodoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final vm = context.read<TodoViewModel>();
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: () {
-          if (selectionMode) {
-            onToggleSelection();
-            return;
-          }
-
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => TodoDetailView(todo: todo)),
-          );
-        },
-        onLongPress: () {
-          if (!selectionMode) {
-            onEnterSelectionMode();
-          } else {
-            onToggleSelection();
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
+    return GestureDetector(
+      onLongPress: selectionMode ? null : onEnterSelectionMode,
+      onTap: selectionMode
+          ? onToggleSelection
+          : () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TodoDetailView(todo: todo),
+                ),
+              );
+            },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFFEEF3FC)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
             color: selected
-                ? const Color(0xFFEAF1FB)
-                : Colors.white,
-            border: Border.all(
-              color: selected
-                  ? const Color(0xFF2F73D9)
-                  : const Color(0xFFEAEAEA),
-              width: selected ? 1.5 : 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
-              ),
-            ],
+                ? const Color(0xFF2F73D9).withOpacity(0.35)
+                : const Color(0xFFECECEC),
+            width: selected ? 1.5 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1004,7 +1151,7 @@ class _TodoTile extends StatelessWidget {
                 onSelectionTap: onToggleSelection,
                 onDoneChanged: (_) => vm.toggleDone(todo),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1014,8 +1161,8 @@ class _TodoTile extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                         decoration:
                             todo.isDone ? TextDecoration.lineThrough : null,
                         color: todo.isDone
@@ -1023,32 +1170,32 @@ class _TodoTile extends StatelessWidget {
                             : Colors.black87,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      decryptedNote.isEmpty ? '(empty)' : decryptedNote,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: todo.isDone
-                            ? const Color(0xFF9C9C9C)
-                            : const Color(0xFF666666),
+                    if (decryptedNote.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        decryptedNote,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: todo.isDone
+                              ? const Color(0xFF9C9C9C)
+                              : const Color(0xFF777777),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+                    ],
+                    const SizedBox(height: 10),
+                    Row(
                       children: [
+                        // Timestamp chip
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
+                            horizontal: 8,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF4F6F8),
+                            color: const Color(0xFFF2F4F7),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Row(
@@ -1056,25 +1203,27 @@ class _TodoTile extends StatelessWidget {
                             children: [
                               const Icon(
                                 Icons.schedule_rounded,
-                                size: 14,
+                                size: 12,
                                 color: Color(0xFF7A7A7A),
                               ),
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 4),
                               Text(
                                 timestampText,
                                 style: const TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 11,
                                   color: Color(0xFF666666),
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        const SizedBox(width: 8),
+                        // Status badge
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
+                            horizontal: 8,
+                            vertical: 4,
                           ),
                           decoration: BoxDecoration(
                             color: todo.isDone
@@ -1085,7 +1234,7 @@ class _TodoTile extends StatelessWidget {
                           child: Text(
                             todo.isDone ? 'Completed' : 'Pending',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               fontWeight: FontWeight.w700,
                               color: todo.isDone
                                   ? const Color(0xFF1F9D55)
@@ -1098,34 +1247,44 @@ class _TodoTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+              // Right: selection icon or delete button
               selectionMode
-                  ? Icon(
-                      selected
-                          ? Icons.check_circle_rounded
-                          : Icons.radio_button_unchecked_rounded,
-                      color: selected
-                          ? const Color(0xFF2F73D9)
-                          : const Color(0xFFB7B7B7),
-                      size: 26,
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        selected
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: selected
+                            ? const Color(0xFF2F73D9)
+                            : const Color(0xFFB7B7B7),
+                        size: 24,
+                      ),
                     )
-                  : IconButton(
-                      tooltip: 'Delete',
-                      onPressed: () async {
-                        final confirmed = await _confirmDelete(context);
-                        if (confirmed != true) return;
+                  : SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Delete',
+                        onPressed: () async {
+                          final confirmed = await _confirmDelete(context);
+                          if (confirmed != true) return;
 
-                        await vm.deleteTodo(todo.id);
+                          await vm.deleteTodo(todo.id);
 
-                        if (!context.mounted) return;
-                        showMiniSnackBar(
-                          context,
-                          'Task deleted successfully.',
-                        );
-                      },
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: Color(0xFF7A7A7A),
+                          if (!context.mounted) return;
+                          showMiniSnackBar(
+                            context,
+                            'Task deleted successfully.',
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFB0B0B0),
+                          size: 20,
+                        ),
                       ),
                     ),
             ],
@@ -1135,6 +1294,8 @@ class _TodoTile extends StatelessWidget {
     );
   }
 }
+
+// ── Selection leading ─────────────────────────────────────────────────────────
 
 class _SelectionLeading extends StatelessWidget {
   final bool selectionMode;

@@ -10,7 +10,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/database_service.dart';
 import 'services/session_service.dart';
 import 'utils/constants.dart';
-import 'utils/snack_bar.dart';
 import 'viewmodels/auth_viewmodel.dart';
 import 'viewmodels/todo_viewmodel.dart';
 import 'views/login_view.dart';
@@ -24,6 +23,9 @@ Future<void> main() async {
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce,
+    ),
   );
 
   await DatabaseService.instance.init();
@@ -38,26 +40,125 @@ class CipherTaskApp extends StatefulWidget {
   State<CipherTaskApp> createState() => _CipherTaskAppState();
 }
 
-class _CipherTaskAppState extends State<CipherTaskApp> {
+class _CipherTaskAppState extends State<CipherTaskApp>
+    with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
+  StreamSubscription<AuthState>? _authSub;
+
   bool _warningDialogOpen = false;
   bool _sessionRunning = false;
   bool _notificationReady = false;
+  bool _isAppInForeground = true;
+  bool _isForceLoggingOut = false;
+
+  DateTime? _warningDeadline;
+  Timer? _warningTimeoutTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _initScreenProtection();
     _initNotifications();
+
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) async {
+      final event = data.event;
+
+      if (event == AuthChangeEvent.signedIn ||
+          event == AuthChangeEvent.tokenRefreshed ||
+          event == AuthChangeEvent.userUpdated) {
+        final ctx = _navKey.currentContext;
+        if (ctx != null) {
+          try {
+            await ctx.read<AuthViewModel>().syncSupabaseUserToLocal();
+          } catch (e) {
+            debugPrint('Auth sync error: $e');
+          }
+
+          if (event == AuthChangeEvent.signedIn) {
+            final provider = data.session?.user.appMetadata['provider'] as String?;
+
+            if (provider == 'google') {
+              ctx.read<AuthViewModel>().setPendingOAuthSnackBarMessage(
+                    'Google sign-in successful.',
+                  );
+            } else if (provider == 'facebook') {
+              ctx.read<AuthViewModel>().setPendingOAuthSnackBarMessage(
+                    'Facebook sign-in successful.',
+                  );
+            }
+          }
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _authSub?.cancel();
+    _warningTimeoutTimer?.cancel();
     SessionService.instance.stop();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppInForeground = state == AppLifecycleState.resumed;
+
+    if (state == AppLifecycleState.resumed) {
+      _handleAppResumed();
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      if (_warningDialogOpen) {
+        final ctx = _navKey.currentContext;
+        if (ctx != null) {
+          Navigator.of(ctx, rootNavigator: true).pop();
+        }
+        _warningDialogOpen = false;
+      }
+    }
+  }
+
+  Future<void> _handleAppResumed() async {
+    final ctx = _navKey.currentContext;
+    if (ctx == null) return;
+
+    final authVm = ctx.read<AuthViewModel>();
+    if (!authVm.isAuthenticated) return;
+
+    if (_warningDeadline == null) return;
+
+    final remaining = _remainingWarningSeconds();
+
+    if (remaining <= 0) {
+      await _performForcedLogout();
+      return;
+    }
+
+    if (!_warningDialogOpen) {
+      _showSessionWarningDialog(ctx);
+    }
+  }
+
+  int _remainingWarningSeconds() {
+    final deadline = _warningDeadline;
+    if (deadline == null) return 0;
+
+    final ms = deadline.difference(DateTime.now()).inMilliseconds;
+    if (ms <= 0) return 0;
+
+    return (ms / 1000).ceil();
   }
 
   Future<void> _initNotifications() async {
@@ -98,10 +199,14 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
     if (!_notificationReady) return;
 
     try {
+      final remaining = _remainingWarningSeconds();
+
       await _notifications.show(
         1001,
         'Session expiring soon',
-        'Your session will end soon. Tap Stay signed in or Log out.',
+        remaining > 0
+            ? 'Your session will end in $remaining seconds. Return to the app to stay signed in.'
+            : 'Your session will end soon. Return to the app to stay signed in.',
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'session_warning_channel',
@@ -128,27 +233,60 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
     }
   }
 
-  Future<void> _performForcedLogout() async {
-    final nav = _navKey.currentState;
-    final context = _navKey.currentContext;
-    if (nav == null || context == null) return;
+  Future<void> _beginWarningWindow() async {
+    _warningTimeoutTimer?.cancel();
 
-    if (_warningDialogOpen) {
-      Navigator.of(context, rootNavigator: true).pop();
-      _warningDialogOpen = false;
+    _warningDeadline = DateTime.now().add(const Duration(seconds: 30));
+
+    await _showSessionReminderNotification();
+
+    _warningTimeoutTimer = Timer(const Duration(seconds: 30), () async {
+      if (!mounted) return;
+      if (_warningDeadline == null) return;
+
+      if (_remainingWarningSeconds() <= 0) {
+        await _performForcedLogout();
+      }
+    });
+
+    final ctx = _navKey.currentContext;
+    if (ctx != null && _isAppInForeground && !_warningDialogOpen) {
+      _showSessionWarningDialog(ctx);
     }
+  }
 
-    await _cancelSessionReminderNotification();
-    await context.read<AuthViewModel>().logout();
+  Future<void> _performForcedLogout() async {
+    if (_isForceLoggingOut) return;
+    _isForceLoggingOut = true;
 
-    nav.popUntil((route) => route.isFirst);
+    try {
+      final nav = _navKey.currentState;
+      final context = _navKey.currentContext;
+      if (nav == null || context == null) return;
 
-    if (!mounted) return;
-    showMiniSnackBar(
-      context,
-      'Session expired. You have been logged out.',
-      success: false,
-    );
+      _warningTimeoutTimer?.cancel();
+      _warningTimeoutTimer = null;
+      _warningDeadline = null;
+
+      if (_warningDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _warningDialogOpen = false;
+      }
+
+      await _cancelSessionReminderNotification();
+
+      final authVm = context.read<AuthViewModel>();
+      authVm.setPendingMiniSnackBar(
+        message: 'You were logged out due to inactivity.',
+        success: false,
+      );
+
+      await authVm.logout();
+
+      nav.popUntil((route) => route.isFirst);
+    } finally {
+      _isForceLoggingOut = false;
+    }
   }
 
   void _startSessionIfNeeded(BuildContext ctx) {
@@ -161,11 +299,8 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         await _performForcedLogout();
       },
       onWarning: () async {
-        final context = _navKey.currentContext;
-        if (context == null) return;
-
-        await _showSessionReminderNotification();
-        _showSessionWarningDialog(context);
+        if (_warningDeadline != null) return;
+        await _beginWarningWindow();
       },
     );
   }
@@ -179,6 +314,10 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
       _warningDialogOpen = false;
     }
 
+    _warningTimeoutTimer?.cancel();
+    _warningTimeoutTimer = null;
+    _warningDeadline = null;
+
     _cancelSessionReminderNotification();
     SessionService.instance.stop();
     _sessionRunning = false;
@@ -186,9 +325,9 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
 
   void _showSessionWarningDialog(BuildContext rootContext) {
     if (_warningDialogOpen) return;
-    _warningDialogOpen = true;
+    if (_warningDeadline == null) return;
 
-    int secondsLeft = 30;
+    _warningDialogOpen = true;
     Timer? countdownTimer;
 
     showDialog<void>(
@@ -199,19 +338,33 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
           builder: (dialogContext, setState) {
             countdownTimer ??= Timer.periodic(
               const Duration(seconds: 1),
-              (timer) {
+              (timer) async {
                 if (!mounted) {
                   timer.cancel();
                   return;
                 }
-                if (secondsLeft <= 1) {
+
+                final remaining = _remainingWarningSeconds();
+
+                if (remaining <= 0) {
                   timer.cancel();
-                  setState(() => secondsLeft = 0);
+
+                  if (Navigator.of(dialogContext, rootNavigator: true).canPop()) {
+                    Navigator.of(dialogContext, rootNavigator: true).pop();
+                  }
+
+                  _warningDialogOpen = false;
+                  await _performForcedLogout();
                   return;
                 }
-                setState(() => secondsLeft--);
+
+                if (dialogContext.mounted) {
+                  setState(() {});
+                }
               },
             );
+
+            final secondsLeft = _remainingWarningSeconds();
 
             return AlertDialog(
               shape: RoundedRectangleBorder(
@@ -222,10 +375,14 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
               contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
               actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               title: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.notifications_active_rounded,
-                    color: Color(0xFF2F73D9),
+                  Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(
+                      Icons.notifications_active_rounded,
+                      color: Color(0xFF2F73D9),
+                    ),
                   ),
                   SizedBox(width: 10),
                   Expanded(
@@ -290,6 +447,10 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                     Navigator.of(dialogContext).pop();
                     _warningDialogOpen = false;
 
+                    _warningDeadline = null;
+                    _warningTimeoutTimer?.cancel();
+                    _warningTimeoutTimer = null;
+
                     await _cancelSessionReminderNotification();
                     await _performForcedLogout();
                   },
@@ -314,6 +475,10 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
                     Navigator.of(dialogContext).pop();
                     _warningDialogOpen = false;
 
+                    _warningDeadline = null;
+                    _warningTimeoutTimer?.cancel();
+                    _warningTimeoutTimer = null;
+
                     await _cancelSessionReminderNotification();
                     SessionService.instance.userActivityPing();
                   },
@@ -328,8 +493,8 @@ class _CipherTaskAppState extends State<CipherTaskApp> {
         );
       },
     ).then((_) {
-      _warningDialogOpen = false;
       countdownTimer?.cancel();
+      _warningDialogOpen = false;
     });
   }
 

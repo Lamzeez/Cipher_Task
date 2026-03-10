@@ -1,21 +1,31 @@
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
-
+import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/user_model.dart';
+import '../services/avatar_service.dart';
 import '../services/database_service.dart';
 import '../services/key_storage_service.dart';
 import '../utils/constants.dart';
 
-class AuthViewModel extends ChangeNotifier {
+class PendingMiniSnackBar {
+  final String message;
+  final bool success;
 
+  const PendingMiniSnackBar({
+    required this.message,
+    required this.success,
+  });
+}
+
+class AuthViewModel extends ChangeNotifier {
   bool _isAuthenticated = false;
   bool get isAuthenticated => _isAuthenticated;
 
@@ -25,37 +35,140 @@ class AuthViewModel extends ChangeNotifier {
   bool _loading = false;
   bool get loading => _loading;
 
+  /// Current local avatar file.  Null when none has been set.
+  File? _avatarFile;
+  File? get avatarFile => _avatarFile;
+
+  /// Incremented on every avatar change so Image.file widgets bust their cache.
+  int _avatarVersion = 0;
+  int get avatarVersion => _avatarVersion;
+
   final LocalAuthentication _localAuth = LocalAuthentication();
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // Pending registration (OTP verification)
   String? _pendingEmail;
   String? _pendingName;
   String? _pendingPasswordHash;
 
   bool get awaitingOtp => _pendingEmail != null;
 
-  // Pending account deletion (OTP re-auth)
   String? _pendingDeleteEmail;
   bool get awaitingDeleteOtp => _pendingDeleteEmail != null;
   String? get pendingDeleteEmail => _pendingDeleteEmail;
 
+  // ── avatar ─────────────────────────────────────────────────────────────────
+
+  Future<void> loadAvatar() async {
+    final email = _user?.email;
+    if (email == null || email.isEmpty) {
+      _avatarFile = null;
+      return;
+    }
+    _avatarFile = await AvatarService.instance.loadAvatar(email);
+    notifyListeners();
+  }
+
+
+  PendingMiniSnackBar? _pendingMiniSnackBar;
+
+    void setPendingMiniSnackBar({
+      required String message,
+      required bool success,
+    }) {
+      _pendingMiniSnackBar = PendingMiniSnackBar(
+        message: message,
+        success: success,
+      );
+    }
+
+    PendingMiniSnackBar? takePendingMiniSnackBar() {
+      final value = _pendingMiniSnackBar;
+      _pendingMiniSnackBar = null;
+      return value;
+    }
+
+  /// Opens the gallery picker, saves the file, evicts the old image from
+  /// Flutter's in-memory ImageCache, then bumps [avatarVersion] so every
+  /// Image.file widget rebuilds with fresh bytes.
+  Future<bool> updateAvatar() async {
+    final email = _user?.email;
+    if (email == null || email.isEmpty) return false;
+
+    _setLoading(true);
+    try {
+      final file = await AvatarService.instance.pickAndSaveAvatar(email);
+      if (file == null) return false;
+
+      // Evict ALL cached entries for this file. Flutter stores separate cache
+      // entries per (file, cacheWidth, cacheHeight) combination, so we clear
+      // the full live+pending cache to guarantee no stale pixels survive.
+      imageCache.evict(FileImage(file));
+      imageCache.clearLiveImages();
+
+      _avatarFile = file;
+      _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+      notifyListeners();
+      return true;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> removeAvatar() async {
+    final email = _user?.email;
+    if (email == null || email.isEmpty) return;
+
+    await AvatarService.instance.deleteAvatar(email);
+    _avatarFile = null;
+    _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+  }
+
+  // ── core auth ──────────────────────────────────────────────────────────────
+
   Future<void> loadUser() async {
     await DatabaseService.instance.init();
 
+    final supabaseUser = _supabase.auth.currentUser;
+    if (supabaseUser != null) {
+      final email = (supabaseUser.email ?? '').trim().toLowerCase();
+      final metadata = supabaseUser.userMetadata ?? {};
+      final fullName =
+          (metadata['full_name'] ??
+                  metadata['name'] ??
+                  metadata['display_name'] ??
+                  email.split('@').first)
+              .toString()
+              .trim();
+
+      if (email.isNotEmpty) {
+        final profile = UserModel(email: email, displayName: fullName);
+
+        final box = DatabaseService.instance.userBox;
+        await box.put(email, profile.toMap());
+        await box.put('profile', profile.toMap());
+
+        _user = profile;
+        _isAuthenticated = true;
+        await loadAvatar();
+        notifyListeners();
+        return;
+      }
+    }
+
     final box = DatabaseService.instance.userBox;
-    final data = box.get('profile'); // last logged-in user
+    final data = box.get('profile');
     if (data is Map) {
       _user = UserModel.fromMap(Map<String, dynamic>.from(data));
     } else {
       _user = null;
     }
+
+    _isAuthenticated = false;
+    await loadAvatar();
     notifyListeners();
   }
 
-  // ----------------------------
-  // Registration (Supabase OTP)
-  // ----------------------------
   Future<bool> startRegistration({
     required String fullName,
     required String email,
@@ -68,13 +181,10 @@ class AuthViewModel extends ChangeNotifier {
       final normalizedEmail = email.trim().toLowerCase();
       final usersBox = DatabaseService.instance.userBox;
 
-      // Already registered locally?
       final existing = usersBox.get(normalizedEmail);
       if (existing is Map) return false;
 
       final hash = _hashPassword(password);
-
-      // Send OTP via Supabase
       await _supabase.auth.signInWithOtp(email: normalizedEmail);
 
       _pendingEmail = normalizedEmail;
@@ -94,7 +204,9 @@ class AuthViewModel extends ChangeNotifier {
     required String email,
     required String otp,
   }) async {
-    if (_pendingEmail == null || _pendingPasswordHash == null || _pendingName == null) {
+    if (_pendingEmail == null ||
+        _pendingPasswordHash == null ||
+        _pendingName == null) {
       return false;
     }
 
@@ -122,7 +234,10 @@ class AuthViewModel extends ChangeNotifier {
 
       final pwdKey = AppConstants.passwordKeyForEmail(normalizedEmail);
       await KeyStorageService.instance.setString(pwdKey, _pendingPasswordHash!);
-      await KeyStorageService.instance.setString(AppConstants.kPasswordEverSet, 'true');
+      await KeyStorageService.instance.setString(
+        AppConstants.kPasswordEverSet,
+        'true',
+      );
 
       _user = profile;
       _isAuthenticated = true;
@@ -131,6 +246,7 @@ class AuthViewModel extends ChangeNotifier {
       _pendingName = null;
       _pendingPasswordHash = null;
 
+      await loadAvatar();
       notifyListeners();
       return true;
     } on AuthException catch (e) {
@@ -162,9 +278,6 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ----------------------------
-  // Local Login (no Supabase session)
-  // ----------------------------
   Future<bool> loginWithPassword(String email, String password) async {
     if (_loading) return false;
 
@@ -188,10 +301,14 @@ class AuthViewModel extends ChangeNotifier {
       if (!ok) return false;
 
       await usersBox.put('profile', profile.toMap());
-      await KeyStorageService.instance.setString(AppConstants.kPasswordEverSet, 'true');
+      await KeyStorageService.instance.setString(
+        AppConstants.kPasswordEverSet,
+        'true',
+      );
 
       _user = profile;
       _isAuthenticated = true;
+      await loadAvatar();
       notifyListeners();
       return true;
     } finally {
@@ -199,13 +316,12 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ----------------------------
-  // Biometrics (local)
-  // ----------------------------
   Future<bool> canUseBiometrics() async {
     await DatabaseService.instance.init();
 
-    final ever = await KeyStorageService.instance.getString(AppConstants.kPasswordEverSet);
+    final ever = await KeyStorageService.instance.getString(
+      AppConstants.kPasswordEverSet,
+    );
     if (ever != 'true') return false;
 
     final canCheck = await _localAuth.canCheckBiometrics;
@@ -256,14 +372,12 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ----------------------------
-  // Logout (local + supabase signOut best-effort)
-  // ----------------------------
   Future<void> logout() async {
     _isAuthenticated = false;
     _user = null;
+    _avatarFile = null;
+    _avatarVersion = DateTime.now().millisecondsSinceEpoch;
 
-    // best effort
     try {
       await _supabase.auth.signOut();
     } catch (_) {}
@@ -271,14 +385,14 @@ class AuthViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ----------------------------
-  // Profile update (local)
-  // ----------------------------
   Future<bool> updateDisplayName(String newName) async {
     try {
       if (_user == null) return false;
 
-      final updated = UserModel(email: _user!.email, displayName: newName.trim());
+      final updated = UserModel(
+        email: _user!.email,
+        displayName: newName.trim(),
+      );
 
       await DatabaseService.instance.init();
       final usersBox = DatabaseService.instance.userBox;
@@ -295,18 +409,21 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ----------------------------
-  // Local delete only
-  // ----------------------------
   Future<bool> deleteLocalAccount() async {
     try {
       final email = _user?.email;
+
+      if (email != null && email.isNotEmpty) {
+        await AvatarService.instance.deleteAvatar(email);
+      }
 
       await DatabaseService.instance.init();
       await DatabaseService.instance.clearAll();
 
       if (email != null && email.isNotEmpty) {
-        await KeyStorageService.instance.delete(AppConstants.passwordKeyForEmail(email));
+        await KeyStorageService.instance.delete(
+          AppConstants.passwordKeyForEmail(email),
+        );
       }
 
       await KeyStorageService.instance.delete(AppConstants.kPasswordEverSet);
@@ -321,11 +438,6 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ==========================================================
-  // OTP RE-AUTH FOR ACCOUNT DELETION (SUPABASE + LOCAL)
-  // ==========================================================
-
-  /// Step 1: Send OTP to the currently logged-in local user's email.
   Future<bool> startDeleteAccountOtp() async {
     final email = _user?.email.trim().toLowerCase();
     if (email == null || email.isEmpty) return false;
@@ -344,7 +456,6 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Optional: resend OTP for delete flow.
   Future<bool> resendDeleteOtp() async {
     if (_loading) return false;
 
@@ -363,14 +474,12 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  /// Step 2: Verify OTP, then invoke Edge Function to delete Auth user, then wipe local.
   Future<bool> verifyDeleteOtpAndDeleteAccount({required String otp}) async {
     final email = _pendingDeleteEmail;
     if (email == null || email.isEmpty) return false;
 
     _setLoading(true);
     try {
-      // (A) Verify OTP -> creates a Supabase session
       final verifyRes = await _supabase.auth.verifyOTP(
         type: OtpType.email,
         email: email,
@@ -378,25 +487,14 @@ class AuthViewModel extends ChangeNotifier {
       );
 
       final accessToken =
-          verifyRes.session?.accessToken ?? _supabase.auth.currentSession?.accessToken;
+          verifyRes.session?.accessToken ??
+          _supabase.auth.currentSession?.accessToken;
 
       if (accessToken == null || accessToken.isEmpty) {
         debugPrint('Delete OTP verified but accessToken is null/empty.');
         return false;
       }
 
-      // // Debug: print first chars to prove we have a JWT
-      // debugPrint('Delete accessToken prefix: ${accessToken.substring(0, 20)}');
-
-      // // (B) Validate the JWT against THIS project
-      // final check = await _supabase.auth.getUser(accessToken);
-      // if (check.user == null) {
-      //   debugPrint('JWT validation failed: getUser returned null user');
-      //   return false;
-      // }
-      // debugPrint('JWT valid for userId=${check.user!.id}');
-
-      // (C) Call Edge Function (SDK invoke)
       final fnRes = await _supabase.functions.invoke(
         'delete-account',
         headers: {'Authorization': 'Bearer $accessToken'},
@@ -409,7 +507,6 @@ class AuthViewModel extends ChangeNotifier {
 
       _pendingDeleteEmail = null;
 
-      // (D) Wipe local + logout (your existing local delete)
       final okLocal = await deleteLocalAccount();
       return okLocal;
     } catch (e) {
@@ -420,13 +517,12 @@ class AuthViewModel extends ChangeNotifier {
     }
   }
 
-  // ----------------------------
-  // Password policy + helpers
-  // ----------------------------
   bool passwordMeetsPolicy(String password) {
     if (password.length < 8) return false;
     final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
-    final hasSpecial = RegExp(r'[!@#$%^&*()_\-+=\[\]{};:"\\|,.<>/?`~]').hasMatch(password);
+    final hasSpecial = RegExp(
+      r'[!@#$%^&*()_\-+=\[\]{};:"\\|,.<>/?`~]',
+    ).hasMatch(password);
     return hasUpper && hasSpecial;
   }
 
@@ -438,5 +534,96 @@ class AuthViewModel extends ChangeNotifier {
   void _setLoading(bool v) {
     _loading = v;
     notifyListeners();
+  }
+
+  Future<bool> signInWithGoogle() async {
+    if (_loading) return false;
+
+    _setLoading(true);
+    try {
+      final didLaunch = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: kIsWeb ? null : 'com.ciphertask.app://login-callback',
+        authScreenLaunchMode:
+            kIsWeb
+                ? LaunchMode.platformDefault
+                : LaunchMode.externalApplication,
+        scopes: 'email profile openid',
+      );
+      return didLaunch;
+    } catch (e) {
+      debugPrint('signInWithGoogle error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<bool> signInWithFacebook() async {
+    if (_loading) return false;
+
+    _setLoading(true);
+    try {
+      final didLaunch = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.facebook,
+        redirectTo: kIsWeb ? null : 'com.ciphertask.app://login-callback',
+        authScreenLaunchMode:
+            kIsWeb
+                ? LaunchMode.platformDefault
+                : LaunchMode.externalApplication,
+        scopes: 'email,public_profile',
+      );
+      return didLaunch;
+    } catch (e) {
+      debugPrint('signInWithFacebook error: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> syncSupabaseUserToLocal() async {
+    try {
+      await DatabaseService.instance.init();
+
+      final supabaseUser = _supabase.auth.currentUser;
+      if (supabaseUser == null) return;
+
+      final email = (supabaseUser.email ?? '').trim().toLowerCase();
+      if (email.isEmpty) return;
+
+      final metadata = supabaseUser.userMetadata ?? {};
+      final fullName =
+          (metadata['full_name'] ??
+                  metadata['name'] ??
+                  metadata['display_name'] ??
+                  email.split('@').first)
+              .toString()
+              .trim();
+
+      final profile = UserModel(email: email, displayName: fullName);
+
+      final usersBox = DatabaseService.instance.userBox;
+      await usersBox.put(email, profile.toMap());
+      await usersBox.put('profile', profile.toMap());
+
+      _user = profile;
+      _isAuthenticated = true;
+      await loadAvatar();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('syncSupabaseUserToLocal error: $e');
+    }
+  }
+  String? _pendingOAuthSnackBarMessage;
+
+  String? takePendingOAuthSnackBarMessage() {
+    final msg = _pendingOAuthSnackBarMessage;
+    _pendingOAuthSnackBarMessage = null;
+    return msg;
+  }
+
+  void setPendingOAuthSnackBarMessage(String message) {
+    _pendingOAuthSnackBarMessage = message;
   }
 }

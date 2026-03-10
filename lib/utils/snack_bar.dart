@@ -19,6 +19,9 @@ SnackBar miniSnackBar(
   );
 }
 
+// Tracks the single active overlay entry so we can dismiss it before showing a new one.
+OverlayEntry? _activeSnackEntry;
+
 void showMiniSnackBar(
   BuildContext context,
   String msg, {
@@ -26,7 +29,12 @@ void showMiniSnackBar(
   bool success = true,
 }) {
   final overlay = Overlay.of(context);
-  if (overlay == null) return;
+
+  // Remove any currently visible snackbar before showing the new one.
+  if (_activeSnackEntry != null && _activeSnackEntry!.mounted) {
+    _activeSnackEntry!.remove();
+    _activeSnackEntry = null;
+  }
 
   final view = View.of(context);
   final size = MediaQueryData.fromView(view).size;
@@ -52,9 +60,16 @@ void showMiniSnackBar(
     ),
   );
 
+  _activeSnackEntry = entry;
   overlay.insert(entry);
+
   Future.delayed(duration, () {
-    if (entry.mounted) entry.remove();
+    if (entry.mounted) {
+      entry.remove();
+    }
+    if (_activeSnackEntry == entry) {
+      _activeSnackEntry = null;
+    }
   });
 }
 
